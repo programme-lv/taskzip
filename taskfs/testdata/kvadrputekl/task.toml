@@ -1,0 +1,42 @@
+id='kvadrputekl'
+
+[name]
+  lv = 'Kvadrātveida putekļsūcējs'
+  en = 'Square vacuum cleaner'
+
+[testing]
+  type = 'checker'
+  cpu_ms = 500
+  mem_mib = 256
+
+[scoring]
+  type = 'group-min'
+  total = 100
+
+[origin]
+  olymp = 'LIO'
+  year = '2023/2024'
+  stage = 'school'
+  org = 'PPS'
+  authors = ['Krišjānis Petručeņa']
+  [notes]
+    lv = "Uzdevums no Latvijas 37. informātikas olimpiādes (2023./2024. mācību gads) skolas kārtas."
+    en = "The problem is from the school round of the 37th Latvian Informatics Olympiad in the 2023/2024 academic year."
+
+[metadata]
+  tags = ['bfs', 'grid', 'prefix-sum', 'sliding-window', 'shortest-path', 'graphs']
+  difficulty = 3
+
+[[solutions]]
+  fname = 'kp_kp_ok.cpp'
+  subtasks = [1,2,3]
+
+[[solutions]]
+  fname = 'kp_kp_tle.cpp'
+  subtasks = [1,2] 
+
+[[subtasks]]
+  points = 20
+  [description]
+    lv="Uzdevuma tekstā dotie trīs piemēri."
+    en="The three examples given in the problem statement."
