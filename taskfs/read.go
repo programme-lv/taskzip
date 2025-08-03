@@ -119,7 +119,7 @@ func (dir TaskDirReader) ListDir(dirRelPath string) ([]string, error) {
 	return paths, nil
 }
 
-func (dir TaskDirReader) TaskToml() (TaskToml, error) {
+func (dir TaskDirReader) Toml() (TaskToml, error) {
 	content, err := dir.ReadFile("task.toml")
 	if err != nil {
 		msg := "read task.toml"
@@ -207,7 +207,7 @@ func (dir TaskDirReader) Tests() ([]Test, error) {
 }
 
 func (dir TaskDirReader) Testing() (Testing, error) {
-	taskToml, err := dir.TaskToml()
+	taskToml, err := dir.Toml()
 	if err != nil {
 		msg := "read task.toml"
 		return Testing{}, wrap(msg, err)
@@ -258,8 +258,17 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 	return t, nil
 }
 
+func (dir TaskDirReader) Readme() (string, error) {
+	content, err := dir.ReadFile("readme.md")
+	if err != nil {
+		msg := "read readme.md"
+		return "", wrap(msg, err)
+	}
+	return string(content), nil
+}
+
 func (dir TaskDirReader) Task() (Task, error) {
-	taskToml, err := dir.TaskToml()
+	taskToml, err := dir.Toml()
 	if err != nil {
 		msg := "read task.toml"
 		return Task{}, wrap(msg, err)
@@ -269,11 +278,16 @@ func (dir TaskDirReader) Task() (Task, error) {
 		msg := "construct testing"
 		return Task{}, wrap(msg, err)
 	}
+	readme, err := dir.Readme()
+	if err != nil {
+		msg := "read readme.md"
+		return Task{}, wrap(msg, err)
+	}
 	task := Task{
 		Testing:   testing,
 		ShortID:   taskToml.Id,
 		FullName:  taskToml.Name,
-		ReadMe:    "",
+		ReadMe:    readme,
 		Origin:    Origin{},
 		Scoring:   Scoring{},
 		Archive:   Archive{},

@@ -16,4 +16,5 @@ func TestRead(t *testing.T) {
 	require.Equal(t, "Square vacuum cleaner", task.FullName["en"])
 	require.Equal(t, 2, len(task.FullName))
 
+	require.Contains(t, task.ReadMe, "this is an example readme.md file")
 }
