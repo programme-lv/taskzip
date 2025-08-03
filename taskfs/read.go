@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -15,8 +16,8 @@ import (
 
 type TaskDirReader struct {
 	dirAbsPath string
-	readPaths  map[string]bool // map of files that have been read
-	allPaths   []string        // list of all files in the task directory
+	readPaths  map[string]bool // map of relative paths that have been read
+	allPaths   []string        // list of all relative paths in the task directory
 }
 
 func NewTaskDir(dirAbsPath string) (TaskDirReader, error) {
@@ -25,36 +26,54 @@ func NewTaskDir(dirAbsPath string) (TaskDirReader, error) {
 		msg := "get absolute path"
 		return TaskDirReader{}, wrap(msg, err)
 	}
-	allPaths, err := ReadAllPathsInDir(dirAbsPath)
-	if err != nil {
-		msg := "read all files"
-		return TaskDirReader{}, wrap(msg, err)
-	}
-	return TaskDirReader{
+	dir := TaskDirReader{
 		dirAbsPath: dirAbsPath,
 		readPaths:  make(map[string]bool),
-		allPaths:   allPaths,
-	}, nil
+	}
+	err = dir.readAllPathsInDir()
+	if err != nil {
+		msg := "read all paths in dir"
+		return TaskDirReader{}, wrap(msg, err)
+	}
+	return dir, nil
 }
 
-func ReadAllPathsInDir(dirAbsPath string) ([]string, error) {
-	dir, err := os.Open(dirAbsPath)
+func (dir *TaskDirReader) readAllPathsInDir() error {
+	var totalSize int64
+	var fileCount int
+
+	err := filepath.WalkDir(dir.dirAbsPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return fmt.Errorf("get file info: %w", err)
+			}
+
+			totalSize += info.Size()
+			fileCount++
+
+			if totalSize > 512*1024*1024 { // 512 MB
+				return fmt.Errorf("directory exceeds maximum size of 512 MB")
+			}
+			if fileCount > 10000 {
+				return fmt.Errorf("directory contains more than 10000 files")
+			}
+
+			relPath, err := filepath.Rel(dir.dirAbsPath, path)
+			if err != nil {
+				return fmt.Errorf("get relative path: %w", err)
+			}
+			dir.allPaths = append(dir.allPaths, relPath)
+		}
+		return nil
+	})
 	if err != nil {
-		msg := "open directory"
-		return nil, wrap(msg, err)
+		return wrap("walk directory", err)
 	}
-	defer dir.Close()
-	files, err := dir.Readdir(0)
-	if err != nil {
-		msg := "list files"
-		return nil, wrap(msg, err)
-	}
-	allPaths := make([]string, len(files))
-	for i, file := range files {
-		allPaths[i] = filepath.Join(dirAbsPath, file.Name())
-		allPaths[i] = filepath.Clean(allPaths[i])
-	}
-	return allPaths, nil
+	return nil
 }
 
 func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
@@ -77,7 +96,23 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 		msg := "read file"
 		return nil, wrap(msg, err)
 	}
+	dir.readPaths[filePathRel] = true
 	return bytes, nil
+}
+
+func (dir TaskDirReader) ListDir(dirRelPath string) ([]string, error) {
+	prefix := dirRelPath + string(filepath.Separator)
+
+	var paths []string
+	for _, path := range dir.allPaths {
+		if strings.HasPrefix(path, prefix) {
+			rel := strings.TrimPrefix(path, prefix)
+			if !strings.Contains(rel, string(filepath.Separator)) {
+				paths = append(paths, rel)
+			}
+		}
+	}
+	return paths, nil
 }
 
 func (dir TaskDirReader) TaskToml() (TaskToml, error) {
@@ -122,6 +157,51 @@ func (dir TaskDirReader) Interactor() (string, error) {
 	return string(content), nil
 }
 
+func (dir TaskDirReader) Tests() ([]Test, error) {
+	testDirPath := "tests"
+	testFilePaths, err := dir.ListDir(testDirPath)
+	if err != nil {
+		msg := "list tests"
+		return nil, wrap(msg, err)
+	}
+	if len(testFilePaths)%2 != 0 {
+		msg := "number of tests must be even"
+		return nil, wrap(msg)
+	}
+	if len(testFilePaths) > 999*2 {
+		msg := "max 999 tests allowed (2 files per test)"
+		return nil, wrap(msg)
+	}
+	slices.Sort(testFilePaths)
+	tests := make([]Test, len(testFilePaths)/2)
+	for i := 0; i < len(testFilePaths); i += 2 {
+		expInFname := fmt.Sprintf("%03di.txt", (i/2)+1)
+		expOutFname := fmt.Sprintf("%03do.txt", (i/2)+1)
+		if testFilePaths[i] != expInFname {
+			msg := "input test file path is incorrect"
+			return nil, wrap(msg)
+		}
+		if testFilePaths[i+1] != expOutFname {
+			msg := "output test file path is incorrect"
+			return nil, wrap(msg)
+		}
+		inPath := filepath.Join(testDirPath, testFilePaths[i])
+		input, err := dir.ReadFile(inPath)
+		if err != nil {
+			msg := "read test input"
+			return nil, wrap(msg, err)
+		}
+		outPath := filepath.Join(testDirPath, testFilePaths[i+1])
+		output, err := dir.ReadFile(outPath)
+		if err != nil {
+			msg := "read test output"
+			return nil, wrap(msg, err)
+		}
+		tests[i/2] = Test{Input: string(input), Answer: string(output)}
+	}
+	return tests, nil
+}
+
 func (dir TaskDirReader) Testing() (Testing, error) {
 	taskToml, err := dir.TaskToml()
 	if err != nil {
@@ -160,6 +240,12 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 		}
 		t.Interactor = interactor
 	}
+	tests, err := dir.Tests()
+	if err != nil {
+		msg := "read tests"
+		return Testing{}, wrap(msg, err)
+	}
+	t.Tests = tests
 	err = t.Validate()
 	if err != nil {
 		msg := "invalid config"
