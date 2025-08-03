@@ -49,22 +49,26 @@ func (dir *TaskDirReader) readAllPathsInDir() error {
 		if !d.IsDir() {
 			info, err := d.Info()
 			if err != nil {
-				return fmt.Errorf("get file info: %w", err)
+				msg := "get file info"
+				return wrap(msg, err)
 			}
 
 			totalSize += info.Size()
 			fileCount++
 
 			if totalSize > 512*1024*1024 { // 512 MB
-				return fmt.Errorf("directory exceeds maximum size of 512 MB")
+				msg := "directory exceeds maximum size of 512 MB"
+				return wrap(msg)
 			}
 			if fileCount > 10000 {
-				return fmt.Errorf("directory contains more than 10000 files")
+				msg := "directory contains more than 10000 files"
+				return wrap(msg)
 			}
 
 			relPath, err := filepath.Rel(dir.dirAbsPath, path)
 			if err != nil {
-				return fmt.Errorf("get relative path: %w", err)
+				msg := "get relative path"
+				return wrap(msg, err)
 			}
 			dir.allPaths = append(dir.allPaths, relPath)
 		}
@@ -87,8 +91,8 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 		return nil, wrap(msg, err)
 	}
 	if strings.Contains(filePathRel, "..") {
-		msg := "path %s attempts to leave task directory"
-		return nil, fmt.Errorf(msg, relPath)
+		msg := fmt.Sprintf("path %s attempts to leave task directory", relPath)
+		return nil, wrap(msg)
 	}
 
 	bytes, err := os.ReadFile(clean)

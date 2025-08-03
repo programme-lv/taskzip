@@ -6,8 +6,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadId(t *testing.T) {
+func TestRead(t *testing.T) {
 	task, err := Read("testdata/kvadrputekl", WithCheckAllFilesRead(false))
 	require.NoError(t, err)
+
 	require.Equal(t, "kvadrputekl", task.ShortID)
+
+	require.Equal(t, "Kvadrātveida putekļsūcējs", task.FullName["lv"])
+	require.Equal(t, "Square vacuum cleaner", task.FullName["en"])
+	require.Equal(t, 2, len(task.FullName))
+
 }
