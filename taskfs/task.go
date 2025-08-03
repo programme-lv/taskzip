@@ -19,13 +19,41 @@ type Task struct {
 	Testing   Testing
 	Scoring   Scoring
 	Archive   Archive
-	Solutions Solutions
+	Solutions []Solution
 	Metadata  Metadata
 }
 
 type Metadata struct {
 	ProblemTags []string
 	Difficulty  int // in programme.lv, difficulty ranges from 1 to 6
+}
+
+// validates sanity of the metadata configuration
+func (m *Metadata) Validate() error {
+	if m.Difficulty < 1 || m.Difficulty > 6 {
+		return wrap("difficulty must be between 1 and 6")
+	}
+
+	if len(m.ProblemTags) > 20 {
+		return wrap("max 20 problem tags allowed")
+	}
+
+	for _, tag := range m.ProblemTags {
+		if len(tag) == 0 {
+			return wrap("problem tag cannot be empty")
+		}
+		if len(tag) > 50 {
+			return wrap("problem tag too long, max 50 chars")
+		}
+		// Tags should contain only lowercase letters, digits, and hyphens
+		for _, r := range tag {
+			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+				return wrap("problem tag must contain only lowercase letters, digits, and hyphens")
+			}
+		}
+	}
+
+	return nil
 }
 
 type Origin struct {
@@ -197,10 +225,6 @@ type Statement struct {
 	Examples     []Example
 }
 
-type Solutions struct {
-	Solutions []Solution // both good & bad. used for constratint calibration.
-}
-
 type Subtask struct {
 	Desc     i18n[string] // description
 	Points   int
@@ -242,9 +266,8 @@ type MdStatement struct {
 
 type Solution struct {
 	Fname    string // filename
-	Correct  bool   // whether it should receive max points
 	Subtasks []int  // subtasks that it should correctly solve
-	Content  []byte
+	Content  string
 }
 
 type Archive struct {

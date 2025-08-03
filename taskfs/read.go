@@ -290,6 +290,51 @@ func (dir TaskDirReader) Origin() (Origin, error) {
 	return o, nil
 }
 
+func (dir TaskDirReader) Metadata() (Metadata, error) {
+	taskToml, err := dir.Toml()
+	if err != nil {
+		msg := "read task.toml"
+		return Metadata{}, wrap(msg, err)
+	}
+
+	m := Metadata{
+		ProblemTags: taskToml.Metadata.Tags,
+		Difficulty:  taskToml.Metadata.Difficulty,
+	}
+	err = m.Validate()
+	if err != nil {
+		msg := "invalid metadata"
+		return Metadata{}, wrap(msg, err)
+	}
+	return m, nil
+}
+
+func (dir TaskDirReader) Solutions() ([]Solution, error) {
+	taskToml, err := dir.Toml()
+	if err != nil {
+		msg := "read task.toml"
+		return []Solution{}, wrap(msg, err)
+	}
+
+	solutions := make([]Solution, len(taskToml.Solutions))
+	for i, solutionToml := range taskToml.Solutions {
+		solPath := filepath.Join("solutions", solutionToml.Fname)
+		content, err := dir.ReadFile(solPath)
+		if err != nil {
+			msg := fmt.Sprintf("read solution file %s", solutionToml.Fname)
+			return []Solution{}, wrap(msg, err)
+		}
+
+		solutions[i] = Solution{
+			Fname:    solutionToml.Fname,
+			Subtasks: solutionToml.Subtasks,
+			Content:  string(content),
+		}
+	}
+
+	return solutions, nil
+}
+
 func (dir TaskDirReader) Task() (Task, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
@@ -311,6 +356,16 @@ func (dir TaskDirReader) Task() (Task, error) {
 		msg := "read origin"
 		return Task{}, wrap(msg, err)
 	}
+	metadata, err := dir.Metadata()
+	if err != nil {
+		msg := "read metadata"
+		return Task{}, wrap(msg, err)
+	}
+	solutions, err := dir.Solutions()
+	if err != nil {
+		msg := "read solutions"
+		return Task{}, wrap(msg, err)
+	}
 	task := Task{
 		Testing:   testing,
 		ShortID:   taskToml.Id,
@@ -319,8 +374,8 @@ func (dir TaskDirReader) Task() (Task, error) {
 		Origin:    origin,
 		Scoring:   Scoring{},
 		Archive:   Archive{},
-		Solutions: Solutions{},
-		Metadata:  Metadata{},
+		Solutions: solutions,
+		Metadata:  metadata,
 	}
 	return task, nil
 }

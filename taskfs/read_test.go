@@ -27,4 +27,18 @@ func TestRead(t *testing.T) {
 	require.Contains(t, task.Origin.Notes["en"], "The problem is from")
 	require.Equal(t, 2, len(task.Origin.Notes))
 
+	require.Equal(t, []string{"bfs", "grid", "prefix-sum", "sliding-window", "shortest-path", "graphs"}, task.Metadata.ProblemTags)
+	require.Equal(t, 3, task.Metadata.Difficulty)
+
+	require.Equal(t, 2, len(task.Solutions))
+
+	sol1 := task.Solutions[0]
+	require.Equal(t, "kp_kp_ok.cpp", sol1.Fname)
+	require.Equal(t, []int{1, 2, 3}, sol1.Subtasks)
+	require.Contains(t, string(sol1.Content), "#include <iostream>")
+
+	sol2 := task.Solutions[1]
+	require.Equal(t, "kp_kp_tle.cpp", sol2.Fname)
+	require.Equal(t, []int{1, 2}, sol2.Subtasks)
+	require.Contains(t, string(sol2.Content), "#include <bits/stdc++.h>")
 }
