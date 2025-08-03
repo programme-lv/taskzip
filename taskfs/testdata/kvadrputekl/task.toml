@@ -19,9 +19,8 @@ id='kvadrputekl'
   stage = 'school'
   org = 'PPS'
   authors = ['Krišjānis Petručeņa']
-  [notes]
-    lv = "Uzdevums no Latvijas 37. informātikas olimpiādes (2023./2024. mācību gads) skolas kārtas."
-    en = "The problem is from the school round of the 37th Latvian Informatics Olympiad in the 2023/2024 academic year."
+  notes.lv = "Uzdevums no Latvijas 37. informātikas olimpiādes (2023./2024. mācību gads) skolas kārtas."
+  notes.en = "The problem is from the school round of the 37th Latvian Informatics Olympiad in the 2023/2024 academic year."
 
 [metadata]
   tags = ['bfs', 'grid', 'prefix-sum', 'sliding-window', 'shortest-path', 'graphs']
@@ -37,6 +36,5 @@ id='kvadrputekl'
 
 [[subtasks]]
   points = 20
-  [description]
-    lv="Uzdevuma tekstā dotie trīs piemēri."
-    en="The three examples given in the problem statement."
+  description.lv = "Uzdevuma tekstā dotie trīs piemēri."
+  description.en = "The three examples given in the problem statement."

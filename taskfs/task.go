@@ -50,46 +50,39 @@ type Testing struct {
 func (t *Testing) Validate() error {
 	validTypes := []string{"simple", "checker", "interactor"}
 	if !slices.Contains(validTypes, t.TestingT) {
-		return fmt.Errorf("invalid testing type: %s", t.TestingT)
+		return wrap(fmt.Sprintf("invalid testing type - %s", t.TestingT))
 	}
-	if t.TestingT == "checker" && t.Checker == "" {
-		return fmt.Errorf("checker is required if testing type is checker")
+	checker := t.Checker != ""
+	if (t.TestingT == "checker" && !checker) || (t.TestingT != "checker" && checker) {
+		return wrap("checker is required iff testing type is checker")
 	}
-	if t.TestingT == "interactor" && t.Interactor == "" {
-		return fmt.Errorf("interactor is required if testing type is interactor")
-	}
-	if t.TestingT == "simple" && (t.Checker != "" || t.Interactor != "") {
-		return fmt.Errorf("checker and interactor are not allowed if testing type is simple")
-	}
-	if t.TestingT == "checker" && t.Interactor != "" {
-		return fmt.Errorf("interactor is not allowed if testing type is checker")
-	}
-	if t.TestingT == "interactor" && t.Checker != "" {
-		return fmt.Errorf("checker is not allowed if testing type is interactor")
-	}
-	if len(t.Tests) > 999 {
-		return fmt.Errorf("max 999 tests allowed")
+	interactor := t.Interactor != ""
+	if (t.TestingT == "interactor" && !interactor) || (t.TestingT != "interactor" && interactor) {
+		return wrap("interactor is required iff testing type is interactor")
 	}
 	if len(t.Tests) == 0 {
-		return fmt.Errorf("at least 1 test is required")
+		return wrap("at least 1 test is required")
+	}
+	if len(t.Tests) > 999 {
+		return wrap("max 999 tests allowed")
 	}
 	if t.MemLimMiB < 40 {
-		return fmt.Errorf("memory limit must be at least 40 MiB")
+		return wrap("memory limit must be at least 40 MiB")
 	}
 	if t.MemLimMiB > 2048 {
-		return fmt.Errorf("memory limit must be at most 2048 MiB")
+		return wrap("memory limit must be at most 2048 MiB")
 	}
 	if t.CpuLimMs < 100 {
-		return fmt.Errorf("cpu time limit must be at least 100 ms")
+		return wrap("cpu time limit must be at least 100 ms")
 	}
 	if t.CpuLimMs > 8000 {
-		return fmt.Errorf("cpu time limit must be at most 8000 ms")
+		return wrap("cpu time limit must be at most 8000 ms")
 	}
 	if len(t.Checker) > 1e6 {
-		return fmt.Errorf("checker must be at most 1 MB")
+		return wrap("checker must be at most 1 MB")
 	}
 	if len(t.Interactor) > 1e6 {
-		return fmt.Errorf("interactor must be at most 1 MB")
+		return wrap("interactor must be at most 1 MB")
 	}
 	// tests can't weigh more than 500 MB
 	totalTestSize := 0
@@ -97,7 +90,7 @@ func (t *Testing) Validate() error {
 		totalTestSize += len(test.Input) + len(test.Answer)
 	}
 	if totalTestSize > 500*1024*1024 {
-		return fmt.Errorf("tests must be at most 500 MB")
+		return wrap("tests must be at most 500 MB")
 	}
 	return nil
 }

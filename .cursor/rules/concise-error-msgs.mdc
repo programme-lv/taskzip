@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+
+Keep error and validation message logging terse. Don't start with "failed to".
+If action is being performed because of a condition, you may only include the condition in the message.
+It's likely that the issue will be logged later in the stack trace.

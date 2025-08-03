@@ -5,8 +5,8 @@ type TaskToml struct {
 	Name    map[string]string
 	Testing struct {
 		Type   string
-		CpuMs  int
-		MemMiB int
+		CpuMs  int `toml:"cpu_ms"`
+		MemMiB int `toml:"mem_mib"`
 	}
 	Scoring struct {
 		Type  string
@@ -18,7 +18,7 @@ type TaskToml struct {
 		Stage   string
 		Org     string
 		Authors []string
-		Notes   map[string]string
+		Notes   map[string]string `toml:"notes"`
 	}
 	Metadata struct {
 		Tags       []string
@@ -30,6 +30,6 @@ type TaskToml struct {
 	}
 	Subtasks []struct {
 		Points      int
-		Description map[string]string
+		Description map[string]string `toml:"description"`
 	}
 }
