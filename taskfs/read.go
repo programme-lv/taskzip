@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -252,7 +255,7 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 	t.Tests = tests
 	err = t.Validate()
 	if err != nil {
-		msg := "invalid config"
+		msg := "invalid testing component"
 		return Testing{}, wrap(msg, err)
 	}
 	return t, nil
@@ -335,6 +338,356 @@ func (dir TaskDirReader) Solutions() ([]Solution, error) {
 	return solutions, nil
 }
 
+func filter[T any](ss []T, test func(T) bool) (ret []T) {
+	for _, s := range ss {
+		if test(s) {
+			ret = append(ret, s)
+		}
+	}
+	return
+}
+
+func (dir TaskDirReader) Stories() (i18n[StoryMd], error) {
+	stories := make(i18n[StoryMd])
+	files, err := dir.ListDir("statement")
+	if err != nil {
+		msg := "list statement dir"
+		return i18n[StoryMd]{}, wrap(msg, err)
+	}
+	mdFiles := filter(files, func(file string) bool {
+		return strings.HasSuffix(file, ".md")
+	})
+	for _, file := range mdFiles {
+		content, err := dir.ReadFile(filepath.Join("statement", file))
+		if err != nil {
+			msg := fmt.Sprintf("read story %s", file)
+			return i18n[StoryMd]{}, wrap(msg, err)
+		}
+		lang := strings.TrimSuffix(file, ".md")
+		story, err := ParseMdStory(string(content), lang)
+		if err != nil {
+			msg := fmt.Sprintf("parse story %s", file)
+			return i18n[StoryMd]{}, wrap(msg, err)
+		}
+		stories[lang] = story
+	}
+	return stories, nil
+}
+
+type MdStorySection func(*StoryMd) *string
+
+// returns pointer to the corresponding field of the story
+var (
+	StorySection   MdStorySection = func(s *StoryMd) *string { return &s.Story }
+	InputSection   MdStorySection = func(s *StoryMd) *string { return &s.Input }
+	OutputSection  MdStorySection = func(s *StoryMd) *string { return &s.Output }
+	NoteSection    MdStorySection = func(s *StoryMd) *string { return &s.Notes }
+	ScoringSection MdStorySection = func(s *StoryMd) *string { return &s.Scoring }
+	ExampleSection MdStorySection = func(s *StoryMd) *string { return &s.Example }
+	TalkSection    MdStorySection = func(s *StoryMd) *string { return &s.Talk }
+)
+
+var mdStorySectionI18n = i18n[map[string]MdStorySection]{
+	"en": {
+		"Story":       StorySection,
+		"Input":       InputSection,
+		"Output":      OutputSection,
+		"Notes":       NoteSection,
+		"Scoring":     ScoringSection,
+		"Example":     ExampleSection,
+		"Interaction": TalkSection,
+	},
+	"lv": {
+		"Stāsts":       StorySection,
+		"Ievaddati":    InputSection,
+		"Izvaddati":    OutputSection,
+		"Piezīmes":     NoteSection,
+		"Vērtēšana":    ScoringSection,
+		"Piemērs":      ExampleSection,
+		"Komunikācija": TalkSection,
+	},
+}
+
+func mergeMaps[K comparable, V any](base, add map[K]V) map[K]V {
+	if add != nil {
+		for k, v := range add {
+			base[k] = v
+		}
+	}
+	return base
+}
+
+func trimLinesInText(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+		lines[i] = strings.ReplaceAll(lines[i], "\r", "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sliceOfMapKeys[K comparable, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func mapSliceElemsToNew[S any, T any](ss []S, f func(S) T) []T {
+	res := make([]T, len(ss))
+	for i, s := range ss {
+		res[i] = f(s)
+	}
+	return res
+}
+
+func containsAny(text string, substrs []string) bool {
+	for _, substr := range substrs {
+		if strings.Contains(text, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+type Pair[F any, S any] struct {
+	First  F
+	Second S
+}
+
+func SplitByDividers(content string, dividers map[string]MdStorySection) ([]Pair[MdStorySection, string], error) {
+	indices := []Pair[int, MdStorySection]{}
+	for divider, section := range dividers {
+		dividerStr := fmt.Sprintf("%s\n-", divider)
+		fst := strings.Index(content, dividerStr)
+		lst := strings.LastIndex(content, dividerStr)
+		if fst == -1 && lst == -1 {
+			continue
+		}
+		if fst != lst {
+			msg := fmt.Sprintf("divider %s occurs multiple times", divider)
+			return nil, wrap(msg)
+		}
+		indices = append(indices, Pair[int, MdStorySection]{fst, section})
+		content = strings.ReplaceAll(content, dividerStr, "#")
+	}
+	if len(indices) == 0 {
+		return []Pair[MdStorySection, string]{}, nil
+	}
+	for strings.Contains(content, "#-") {
+		content = strings.ReplaceAll(content, "#-", "#")
+	}
+	sort.Slice(indices, func(i, j int) bool {
+		return indices[i].First < indices[j].First
+	})
+	contentSlice := strings.Split(content, "#")
+	contentSlice = filter(contentSlice, func(s string) bool {
+		return s != ""
+	})
+	contentSlice = mapSliceElemsToNew(contentSlice, func(s string) string {
+		return strings.TrimSpace(s)
+	})
+	if len(indices) != len(contentSlice) {
+		msg := fmt.Sprintf("dividers (%d) != content segments (%d)", len(indices), len(contentSlice))
+		return nil, wrap(msg)
+	}
+	parsed := make([]Pair[MdStorySection, string], len(indices))
+	for i, index := range indices {
+		parsed[i] = Pair[MdStorySection, string]{index.Second, contentSlice[i]}
+	}
+	return parsed, nil
+}
+
+func ParseMdStory(content string, lang string) (StoryMd, error) {
+	content = trimLinesInText(content)
+	res := StoryMd{}
+	foundLang := false
+	for _, translation := range mdStorySectionI18n {
+		parsed, err := SplitByDividers(content, translation)
+		if err != nil {
+			msg := "split by dividers"
+			return StoryMd{}, wrap(msg, err)
+		}
+		if len(parsed) > 0 {
+			if foundLang {
+				msg := "story section dividers in multiple langs"
+				return StoryMd{}, wrap(msg)
+			}
+			foundLang = true
+		}
+		for _, pair := range parsed {
+			*pair.First(&res) = pair.Second
+		}
+	}
+
+	return res, nil
+}
+
+func (dir TaskDirReader) Statement() (Statement, error) {
+	taskToml, err := dir.Toml()
+	if err != nil {
+		msg := "read task.toml"
+		return Statement{}, wrap(msg, err)
+	}
+
+	subtasks := make([]Subtask, len(taskToml.Subtasks))
+	for i, subtaskToml := range taskToml.Subtasks {
+		subtasks[i] = Subtask{
+			Desc:     subtaskToml.Description,
+			Points:   subtaskToml.Points,
+			VisInput: false,
+		}
+	}
+
+	examples, err := dir.Examples()
+	if err != nil {
+		msg := "read examples"
+		return Statement{}, wrap(msg, err)
+	}
+
+	stories, err := dir.Stories()
+	if err != nil {
+		msg := "read stories"
+		return Statement{}, wrap(msg, err)
+	}
+
+	statement := Statement{
+		Stories:  stories,
+		Subtasks: subtasks,
+		Examples: examples,
+	}
+	return statement, nil
+}
+
+func (dir TaskDirReader) Example(index int) (Example, error) {
+	notePath := fmt.Sprintf("examples/%03d.md", index)
+	noteContent, err := dir.ReadFile(notePath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		msg := fmt.Sprintf("read example note %d", index)
+		return Example{}, wrap(msg, err)
+	}
+	note := parseMultilingualMd(string(noteContent))
+	inPath := fmt.Sprintf("examples/%03di.txt", index)
+	inContent, err := dir.ReadFile(inPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		msg := fmt.Sprintf("read example input %d", index)
+		return Example{}, wrap(msg, err)
+	}
+	outPath := fmt.Sprintf("examples/%03do.txt", index)
+	outContent, err := dir.ReadFile(outPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		msg := fmt.Sprintf("read example output %d", index)
+		return Example{}, wrap(msg, err)
+	}
+	return Example{
+		Input:  string(inContent),
+		Output: string(outContent),
+		MdNote: note,
+	}, nil
+}
+
+func ensureConsecutiveIdsFrom1(idxMap map[int]bool) (int, error) {
+	minIdx := math.MaxInt32
+	maxIdx := 0
+	for idx := range idxMap {
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+		if idx < minIdx {
+			minIdx = idx
+		}
+	}
+
+	if minIdx != 1 {
+		return 0, fmt.Errorf("first entry must have index 1")
+	}
+
+	for i := minIdx; i <= maxIdx; i++ {
+		if !idxMap[i] {
+			return 0, fmt.Errorf("entry %d missing", i)
+		}
+	}
+	return maxIdx, nil
+}
+
+func (dir TaskDirReader) Examples() ([]Example, error) {
+	files, err := dir.ListDir("examples")
+	if err != nil {
+		msg := "list examples dir"
+		return []Example{}, wrap(msg, err)
+	}
+
+	idxMap := make(map[int]bool)
+	for _, file := range files {
+		index, err := strconv.Atoi(file[:3])
+		if err != nil {
+			msg := fmt.Sprintf("parse example index %s", file)
+			return []Example{}, wrap(msg, err)
+		}
+		idxMap[index] = true
+	}
+
+	maxIdx, err := ensureConsecutiveIdsFrom1(idxMap)
+	if err != nil {
+		msg := "ensure consecutive ids"
+		return []Example{}, wrap(msg, err)
+	}
+
+	examples := make([]Example, maxIdx)
+	for i := 1; i <= maxIdx; i++ {
+		example, err := dir.Example(i)
+		if err != nil {
+			msg := fmt.Sprintf("read example %d", i)
+			return []Example{}, wrap(msg, err)
+		}
+		examples[i-1] = example
+	}
+	return examples, nil
+}
+
+func parseMultilingualMd(content string) i18n[string] {
+	result := make(i18n[string])
+	content = strings.TrimSpace(content)
+
+	if content == "" {
+		return result
+	}
+
+	lines := strings.Split(content, "\n")
+	var currentLang string
+	var currentContent []string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if line == "---" {
+			// Start collecting content for the current language
+			currentContent = []string{}
+		} else if currentLang == "" && line != "" && !strings.Contains(line, " ") {
+			// This is a language code at the beginning
+			currentLang = line
+		} else if currentLang != "" && len(currentContent) >= 0 && line != "" && !strings.Contains(line, " ") && line != currentLang {
+			// This looks like a new language code, save previous and start new
+			if len(currentContent) > 0 {
+				result[currentLang] = strings.TrimSpace(strings.Join(currentContent, "\n"))
+			}
+			currentLang = line
+			currentContent = []string{}
+		} else if currentLang != "" && line != "" {
+			// Content line for current language
+			currentContent = append(currentContent, line)
+		}
+	}
+
+	// Save the last section
+	if currentLang != "" && len(currentContent) > 0 {
+		result[currentLang] = strings.TrimSpace(strings.Join(currentContent, "\n"))
+	}
+
+	return result
+}
+
 func (dir TaskDirReader) Task() (Task, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
@@ -366,11 +719,17 @@ func (dir TaskDirReader) Task() (Task, error) {
 		msg := "read solutions"
 		return Task{}, wrap(msg, err)
 	}
+	statement, err := dir.Statement()
+	if err != nil {
+		msg := "read statement"
+		return Task{}, wrap(msg, err)
+	}
 	task := Task{
 		Testing:   testing,
 		ShortID:   taskToml.Id,
 		FullName:  taskToml.Name,
 		ReadMe:    readme,
+		Statement: statement,
 		Origin:    origin,
 		Scoring:   Scoring{},
 		Archive:   Archive{},

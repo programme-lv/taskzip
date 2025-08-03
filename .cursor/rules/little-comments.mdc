@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+
+Please don't write many comments in the code.
+I like the code terse. Only add comments if the
+code is unintuitive / complex / non-obvious.
+Keep the code and changes short overall.

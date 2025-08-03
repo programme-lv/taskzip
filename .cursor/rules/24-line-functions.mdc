@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+Functions shouldn't be longer than 24 lines.
+If they are like 30 lines, it's fine.
+Longer and its likely time to refactor.

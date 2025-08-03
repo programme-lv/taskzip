@@ -1,10 +1,7 @@
-asdkfjalsdfjklasdf
-
 Stāsts
 ------
 
 ![1. attēls: Laukuma piemērs](kp1.png)
-
 
 Ievaddati
 ---------

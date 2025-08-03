@@ -1,0 +1,9 @@
+---
+alwaysApply: true
+---
+
+In task-zip project, i don't validation rule testing in unit tests.
+This is to keep the code terse and readable.
+I believe that validation rules will work as expected
+because they are simple and straightforward and risk is minimal.
+This rule is specific to task-zip project.

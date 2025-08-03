@@ -11,10 +11,10 @@ import (
 type i18n[T any] map[string]T
 
 type Task struct {
-	ShortID  string // unique identifier; should match .zip filename
-	FullName i18n[string]
-	ReadMe   string // readme md. all kinds of notes for maintainers.
-
+	ShortID   string // unique identifier; should match .zip filename
+	FullName  i18n[string]
+	ReadMe    string // readme md. all kinds of notes for maintainers.
+	Statement Statement
 	Origin    Origin
 	Testing   Testing
 	Scoring   Scoring
@@ -220,9 +220,19 @@ type Scoring struct {
 }
 
 type Statement struct {
-	MdStatements []MdStatement
-	Subtasks     []Subtask
-	Examples     []Example
+	Stories  i18n[StoryMd]
+	Subtasks []Subtask
+	Examples []Example
+}
+
+func (s *Statement) Validate() error {
+	for _, example := range s.Examples {
+		if err := example.Validate(); err != nil {
+			msg := "validate example"
+			return wrap(msg, err)
+		}
+	}
+	return nil
 }
 
 type Subtask struct {
@@ -246,7 +256,25 @@ type Test struct {
 type Example struct {
 	Input  string
 	Output string
-	MdNote string
+	MdNote i18n[string]
+}
+
+func (e *Example) Validate() error {
+	if len(e.Input) > 1024 {
+		return wrap("input too long, max 1024 bytes")
+	}
+	if len(e.Output) > 1024 {
+		return wrap("output too long, max 1024 bytes")
+	}
+	if len(e.Input) == 0 || len(e.Output) == 0 {
+		return wrap("input and output must not be empty")
+	}
+	for _, note := range e.MdNote {
+		if len(note) > 1000 {
+			return wrap("note too long, max 1000 chars")
+		}
+	}
+	return nil
 }
 
 type OriginalPdf struct {
@@ -254,7 +282,7 @@ type OriginalPdf struct {
 	Content  []byte
 }
 
-type MdStatement struct {
+type StoryMd struct {
 	Story   string
 	Input   string
 	Output  string
