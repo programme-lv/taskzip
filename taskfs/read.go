@@ -267,6 +267,29 @@ func (dir TaskDirReader) Readme() (string, error) {
 	return string(content), nil
 }
 
+func (dir TaskDirReader) Origin() (Origin, error) {
+	taskToml, err := dir.Toml()
+	if err != nil {
+		msg := "read task.toml"
+		return Origin{}, wrap(msg, err)
+	}
+
+	o := Origin{
+		Olympiad: taskToml.Origin.Olymp,
+		OlyStage: taskToml.Origin.Stage,
+		Org:      taskToml.Origin.Org,
+		Notes:    taskToml.Origin.Notes,
+		Authors:  taskToml.Origin.Authors,
+		Year:     taskToml.Origin.Year,
+	}
+	err = o.Validate()
+	if err != nil {
+		msg := "invalid origin"
+		return Origin{}, wrap(msg, err)
+	}
+	return o, nil
+}
+
 func (dir TaskDirReader) Task() (Task, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
@@ -283,12 +306,17 @@ func (dir TaskDirReader) Task() (Task, error) {
 		msg := "read readme.md"
 		return Task{}, wrap(msg, err)
 	}
+	origin, err := dir.Origin()
+	if err != nil {
+		msg := "read origin"
+		return Task{}, wrap(msg, err)
+	}
 	task := Task{
 		Testing:   testing,
 		ShortID:   taskToml.Id,
 		FullName:  taskToml.Name,
 		ReadMe:    readme,
-		Origin:    Origin{},
+		Origin:    origin,
 		Scoring:   Scoring{},
 		Archive:   Archive{},
 		Solutions: Solutions{},

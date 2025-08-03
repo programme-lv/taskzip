@@ -37,6 +37,96 @@ type Origin struct {
 	Year     string       // yyyy | yyyy/yyyy e.g. 2024/2025.
 }
 
+// validates sanity of the origin configuration
+func (o *Origin) Validate() error {
+	if len(o.Olympiad) > 10 || !isUpperOrDigits(o.Olympiad) {
+		return wrap("olympiad must be uppercase letters/digits, max 10 chars")
+	}
+
+	validStages := []string{"school", "municipal", "national", "selection", "international"}
+	if !slices.Contains(validStages, o.OlyStage) {
+		return wrap("invalid olympiad stage")
+	}
+
+	if len(o.Org) > 10 || !isUpperOrDigits(o.Org) {
+		return wrap("org must be uppercase letters/digits, max 10 chars")
+	}
+
+	for _, note := range o.Notes {
+		if len(note) > 500 {
+			return wrap("note too long, max 500 chars")
+		}
+	}
+
+	if len(o.Authors) == 0 {
+		return wrap("at least 1 author required")
+	}
+	if len(o.Authors) > 10 {
+		return wrap("max 10 authors allowed")
+	}
+	for _, author := range o.Authors {
+		if len(author) > 50 {
+			return wrap("author name too long, max 50 chars")
+		}
+	}
+
+	// Year format: yyyy or yyyy/yyyy
+	if !strings.Contains(o.Year, "/") {
+		year, err := parseYear(o.Year)
+		if err != nil {
+			return wrap(err.Error())
+		}
+		if year < 1980 {
+			return wrap("year must be at least 1980")
+		}
+	} else {
+		parts := strings.Split(o.Year, "/")
+		if len(parts) != 2 {
+			return wrap("invalid year format, must be yyyy or yyyy/yyyy")
+		}
+
+		start, err := parseYear(parts[0])
+		if err != nil {
+			return wrap(err.Error())
+		}
+		end, err := parseYear(parts[1])
+		if err != nil {
+			return wrap(err.Error())
+		}
+
+		if start < 1980 {
+			return wrap("year must be at least 1980")
+		}
+
+		if end != start+1 {
+			return wrap("years must be consecutive")
+		}
+	}
+
+	return nil
+}
+
+func parseYear(s string) (int, error) {
+	if len(s) != 4 {
+		return 0, fmt.Errorf("invalid year format, must be yyyy")
+	}
+	var year int
+	_, err := fmt.Sscanf(s, "%d", &year)
+	if err != nil {
+		return 0, fmt.Errorf("invalid year format, must be yyyy")
+	}
+	return year, nil
+}
+
+func isUpperOrDigits(s string) bool {
+	for _, r := range s {
+		if !((r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
 type Testing struct {
 	TestingT   string // testing type. documented in readme.md
 	MemLimMiB  int    // rss memory limit in mebibytes
