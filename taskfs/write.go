@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -92,6 +93,18 @@ func (w TaskWriter) WriteTask() error {
 		return err
 	}
 	err = w.Examples()
+	if err != nil {
+		return err
+	}
+	err = w.TestGroups()
+	if err != nil {
+		return err
+	}
+	err = w.Statement()
+	if err != nil {
+		return err
+	}
+	err = w.Archive()
 	if err != nil {
 		return err
 	}
@@ -255,6 +268,168 @@ func (w TaskWriter) Examples() error {
 
 func (w TaskWriter) TestGroups() error {
 	filePath := "testgroups.txt"
-	
+	content := ""
 
+	for i, group := range w.task.Scoring.Groups {
+		groupId := i + 1
+		from := group.Range[0]
+		to := group.Range[1]
+		points := group.Points
+		subtask := group.Subtask
+
+		line := fmt.Sprintf("%02d: %03d-%03d %dp (%d)", groupId, from, to, points, subtask)
+		if group.Public {
+			line += " *"
+		}
+		content += line + "\n"
+	}
+
+	err := w.WriteFile(filePath, []byte(content))
+	if err != nil {
+		msg := "write testgroups.txt"
+		return wrap(msg, err)
+	}
+	return nil
+}
+
+func (w TaskWriter) Statement() error {
+	err := w.CreateDir("statement")
+	if err != nil {
+		msg := "create statement directory"
+		return wrap(msg, err)
+	}
+
+	// Write story files for each language
+	for lang, story := range w.task.Statement.Stories {
+		content := w.formatStoryMd(story, lang)
+		storyPath := filepath.Join("statement", lang+".md")
+		err := w.WriteFile(storyPath, []byte(content))
+		if err != nil {
+			msg := fmt.Sprintf("write story %s", lang)
+			return wrap(msg, err)
+		}
+	}
+
+	// Write image files
+	for _, image := range w.task.Statement.Images {
+		imagePath := filepath.Join("statement", image.Fname)
+		err := w.WriteFile(imagePath, image.Content)
+		if err != nil {
+			msg := fmt.Sprintf("write image %s", image.Fname)
+			return wrap(msg, err)
+		}
+	}
+
+	return nil
+}
+
+func (w TaskWriter) formatStoryMd(story StoryMd, lang string) string {
+	var content string
+
+	// Get the appropriate section names for the language
+	sectionNames := map[string]string{
+		"Story":       "Story",
+		"Input":       "Input",
+		"Output":      "Output",
+		"Notes":       "Notes",
+		"Scoring":     "Scoring",
+		"Example":     "Example",
+		"Interaction": "Interaction",
+	}
+
+	if lang == "lv" {
+		sectionNames = map[string]string{
+			"Story":       "Stāsts",
+			"Input":       "Ievaddati",
+			"Output":      "Izvaddati",
+			"Notes":       "Piezīmes",
+			"Scoring":     "Vērtēšana",
+			"Example":     "Piemērs",
+			"Interaction": "Komunikācija",
+		}
+	}
+
+	if story.Story != "" {
+		content += sectionNames["Story"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Story"])) + "\n\n"
+		content += story.Story + "\n\n"
+	}
+
+	if story.Input != "" {
+		content += sectionNames["Input"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Input"])) + "\n\n"
+		content += story.Input + "\n\n"
+	}
+
+	if story.Output != "" {
+		content += sectionNames["Output"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Output"])) + "\n\n"
+		content += story.Output + "\n\n"
+	}
+
+	if story.Notes != "" {
+		content += sectionNames["Notes"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Notes"])) + "\n\n"
+		content += story.Notes + "\n\n"
+	}
+
+	if story.Scoring != "" {
+		content += sectionNames["Scoring"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Scoring"])) + "\n\n"
+		content += story.Scoring + "\n\n"
+	}
+
+	if story.Example != "" {
+		content += sectionNames["Example"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Example"])) + "\n\n"
+		content += story.Example + "\n\n"
+	}
+
+	if story.Talk != "" {
+		content += sectionNames["Interaction"] + "\n"
+		content += strings.Repeat("-", len(sectionNames["Interaction"])) + "\n\n"
+		content += story.Talk + "\n"
+	}
+
+	return strings.TrimSpace(content)
+}
+
+func (w TaskWriter) Archive() error {
+	err := w.CreateDir("archive")
+	if err != nil {
+		msg := "create archive directory"
+		return wrap(msg, err)
+	}
+
+	for _, file := range w.task.Archive.Files {
+		// Create necessary subdirectories
+		dir := filepath.Dir(file.RelPath)
+		if dir != "." {
+			archiveSubDir := filepath.Join("archive", dir)
+			err := w.CreateDirAll(archiveSubDir)
+			if err != nil {
+				msg := fmt.Sprintf("create archive subdirectory %s", dir)
+				return wrap(msg, err)
+			}
+		}
+
+		filePath := filepath.Join("archive", file.RelPath)
+		err := w.WriteFile(filePath, file.Content)
+		if err != nil {
+			msg := fmt.Sprintf("write archive file %s", file.RelPath)
+			return wrap(msg, err)
+		}
+	}
+
+	return nil
+}
+
+func (w TaskWriter) CreateDirAll(path string) error {
+	absPath := filepath.Join(w.path, path)
+	err := os.MkdirAll(absPath, 0755)
+	if err != nil {
+		msg := fmt.Sprintf("create directory %s", path)
+		return wrap(msg, err)
+	}
+	return nil
 }
