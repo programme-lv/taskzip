@@ -318,17 +318,17 @@ func (dir TaskDirReader) Solutions() ([]Solution, error) {
 	}
 
 	solutions := make([]Solution, len(taskToml.Solutions))
-	for i, solutionToml := range taskToml.Solutions {
-		solPath := filepath.Join("solutions", solutionToml.Fname)
+	for i, sol := range taskToml.Solutions {
+		solPath := filepath.Join("solutions", sol.Fname)
 		content, err := dir.ReadFile(solPath)
 		if err != nil {
-			msg := fmt.Sprintf("read solution file %s", solutionToml.Fname)
+			msg := fmt.Sprintf("read solution file %s", sol.Fname)
 			return []Solution{}, wrap(msg, err)
 		}
 
 		solutions[i] = Solution{
-			Fname:    solutionToml.Fname,
-			Subtasks: solutionToml.Subtasks,
+			Fname:    sol.Fname,
+			Subtasks: sol.Subtasks,
 			Content:  string(content),
 		}
 	}
@@ -524,10 +524,39 @@ func (dir TaskDirReader) Statement() (Statement, error) {
 		return Statement{}, wrap(msg, err)
 	}
 
+	imagePaths, err := dir.ListDir("statement")
+	if err != nil {
+		msg := "list statement dir"
+		return Statement{}, wrap(msg, err)
+	}
+	isImage := func(path string) bool {
+		exts := []string{".png", ".jpg", ".jpeg"}
+		for _, ext := range exts {
+			if strings.HasSuffix(path, ext) {
+				return true
+			}
+		}
+		return false
+	}
+	imagePaths = filter(imagePaths, isImage)
+	images := make([]Image, len(imagePaths))
+	for i, path := range imagePaths {
+		content, err := dir.ReadFile(filepath.Join("statement", path))
+		if err != nil {
+			msg := fmt.Sprintf("read image %s", path)
+			return Statement{}, wrap(msg, err)
+		}
+		images[i] = Image{
+			Fname:   path,
+			Content: content,
+		}
+	}
+
 	statement := Statement{
 		Stories:  stories,
 		Subtasks: subtasks,
 		Examples: examples,
+		Images:   images,
 	}
 	return statement, nil
 }
@@ -746,20 +775,20 @@ func (dir TaskDirReader) Scoring(noOfTests int) (Scoring, error) {
 	return scoring, nil
 }
 
-func (dir TaskDirReader) Archive() ([]ArchiveFile, error) {
+func (dir TaskDirReader) Archive() (Archive, error) {
 	files, err := dir.ListDir("archive")
 	if err != nil {
 		msg := "list archive dir"
-		return []ArchiveFile{}, wrap(msg, err)
+		return Archive{}, wrap(msg, err)
 	}
-	archive := []ArchiveFile{}
+	archive := Archive{}
 	for _, file := range files {
 		content, err := dir.ReadFile(filepath.Join("archive", file))
 		if err != nil {
 			msg := fmt.Sprintf("read archive file %s", file)
-			return []ArchiveFile{}, wrap(msg, err)
+			return Archive{}, wrap(msg, err)
 		}
-		archive = append(archive, ArchiveFile{
+		archive.Files = append(archive.Files, ArchiveFile{
 			RelPath: file,
 			Content: content,
 		})
@@ -841,8 +870,13 @@ func Read(dirPath string, opts ...ReadOption) (Task, error) {
 	}
 
 	if conf.checkAllFilesRead && !dir.AllFilesWereRead() {
-		msg := "not all files were read"
-		return task, wrap(msg)
+		for _, path := range dir.allPaths {
+			if !dir.readPaths[path] {
+				msg := fmt.Sprintf("file never read: %s", path)
+				return task, wrap(msg)
+			}
+		}
+		return task, wrap("no unread files found")
 	}
 
 	return task, nil

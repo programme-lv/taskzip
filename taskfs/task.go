@@ -21,7 +21,7 @@ type Task struct {
 	Origin    Origin
 	Testing   Testing
 	Scoring   Scoring
-	Archive   []ArchiveFile // testcase gen scripts, og pdfs, etc.
+	Archive   Archive
 	Solutions []Solution
 	Metadata  Metadata
 }
@@ -300,6 +300,7 @@ type Statement struct {
 	Stories  i18n[StoryMd]
 	Subtasks []Subtask
 	Examples []Example
+	Images   []Image
 }
 
 func (s *Statement) Validate() error {
@@ -380,17 +381,21 @@ type ArchiveFile struct {
 	Content []byte
 }
 
-type IllustrImg struct {
+type Image struct {
 	Fname   string
 	Content []byte
 }
 
-func (t *Task) GetIllustrImgs() []IllustrImg {
+type Archive struct {
+	Files []ArchiveFile
+}
+
+func (t Archive) GetIllustrImgs() []Image {
 	prefix := "reserved/illustration/img."
-	imgs := []IllustrImg{}
-	for _, file := range t.Archive {
+	imgs := []Image{}
+	for _, file := range t.Files {
 		if strings.HasPrefix(file.RelPath, prefix) {
-			imgs = append(imgs, IllustrImg{
+			imgs = append(imgs, Image{
 				Fname:   filepath.Base(file.RelPath),
 				Content: file.Content,
 			})
@@ -399,11 +404,11 @@ func (t *Task) GetIllustrImgs() []IllustrImg {
 	return imgs
 }
 
-func (t *Task) GetOgStatementPdfs() []OriginalPdf {
+func (t Archive) GetOgStatementPdfs() []OriginalPdf {
 	prefix := "reserved/statement/"
 	ext := ".pdf"
 	pdfs := []OriginalPdf{}
-	for _, file := range t.Archive {
+	for _, file := range t.Files {
 		if strings.HasSuffix(file.RelPath, ext) &&
 			strings.HasPrefix(file.RelPath, prefix) {
 			lang := strings.TrimSuffix(strings.TrimPrefix(file.RelPath, prefix), ext)

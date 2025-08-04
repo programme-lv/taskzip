@@ -34,6 +34,10 @@ id='kvadrputekl'
   fname = 'kp_kp_tle.cpp'
   subtasks = [1,2] 
 
+[[solutions]]
+  fname = 'kp_nv.cpp'
+  subtasks = [1] 
+
 [[subtasks]]
   points = 20
   description.lv = "Uzdevuma tekstā dotie trīs piemēri."

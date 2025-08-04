@@ -8,7 +8,7 @@ import (
 )
 
 func getTestTask(t *testing.T) *Task {
-	task, err := Read("testdata/kvadrputekl", WithCheckAllFilesRead(false))
+	task, err := Read("testdata/kvadrputekl")
 	require.NoError(t, err)
 	return &task
 }
@@ -46,7 +46,7 @@ func TestReadMetadata(t *testing.T) {
 func TestReadSolutions(t *testing.T) {
 	task := getTestTask(t)
 
-	require.Equal(t, 2, len(task.Solutions))
+	require.Equal(t, 3, len(task.Solutions))
 
 	sol1 := task.Solutions[0]
 	require.Equal(t, "kp_kp_ok.cpp", sol1.Fname)
@@ -112,6 +112,12 @@ func TestReadStatement(t *testing.T) {
 	require.Equal(t, "Ievaddatu piemērs", story.Input)
 	require.Equal(t, "Izvaddatu piemērs", story.Output)
 	require.Equal(t, "Šis ir interaktīvs uzdevums.", story.Talk)
+
+	require.Len(t, task.Statement.Images, 2)
+	require.Equal(t, task.Statement.Images[0].Fname, "kp1.png")
+	require.NotEmpty(t, task.Statement.Images[0].Content)
+	require.Equal(t, task.Statement.Images[1].Fname, "kp2.png")
+	require.NotEmpty(t, task.Statement.Images[1].Content)
 }
 
 func TestReadScoring(t *testing.T) {
@@ -149,7 +155,7 @@ func TestReadArchive(t *testing.T) {
 
 	actualPaths := []string{}
 	actualTaskYamlContent := ""
-	for _, f := range task.Archive {
+	for _, f := range task.Archive.Files {
 		actualPaths = append(actualPaths, f.RelPath)
 		if f.RelPath == "task.yaml" {
 			actualTaskYamlContent = string(f.Content)
@@ -159,11 +165,11 @@ func TestReadArchive(t *testing.T) {
 	require.ElementsMatch(t, expFilePaths, actualPaths)
 	require.Contains(t, actualTaskYamlContent, taskYamlExpContent)
 
-	ogPdfs := task.GetOgStatementPdfs()
+	ogPdfs := task.Archive.GetOgStatementPdfs()
 	require.Len(t, ogPdfs, 1)
 	require.Equal(t, "lv", ogPdfs[0].Language)
 
-	illustrImgs := task.GetIllustrImgs()
+	illustrImgs := task.Archive.GetIllustrImgs()
 	require.Len(t, illustrImgs, 1)
 	require.Equal(t, "img.jpg", illustrImgs[0].Fname)
 }
