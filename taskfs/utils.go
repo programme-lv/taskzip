@@ -3,6 +3,7 @@ package taskfs
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 )
@@ -35,4 +36,9 @@ func mapSlice[S any, T any](ss []S, f func(S) T) []T {
 		res[i] = f(s)
 	}
 	return res
+}
+
+func doesDirExist(dirPath string) bool {
+	_, err := os.Stat(dirPath)
+	return err == nil
 }

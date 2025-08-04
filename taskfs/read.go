@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
-	_ "github.com/pelletier/go-toml/v2"
 )
 
 type ReadConfig struct {
@@ -229,11 +228,11 @@ func (dir TaskDirReader) Tests() ([]Test, error) {
 		expInFname := fmt.Sprintf("%03di.txt", (i/2)+1)
 		expOutFname := fmt.Sprintf("%03do.txt", (i/2)+1)
 		if testFilePaths[i] != expInFname {
-			msg := "input test file path is incorrect"
+			msg := fmt.Sprintf("input test file path is incorrect: %s != %s", testFilePaths[i], expInFname)
 			return nil, wrap(msg)
 		}
 		if testFilePaths[i+1] != expOutFname {
-			msg := "output test file path is incorrect"
+			msg := fmt.Sprintf("output test file path is incorrect: %s != %s", testFilePaths[i+1], expOutFname)
 			return nil, wrap(msg)
 		}
 		inPath := filepath.Join(testDirPath, testFilePaths[i])

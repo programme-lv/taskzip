@@ -1,21 +1,25 @@
-package taskfs
+package taskfs_test
 
 import (
 	"strings"
 	"testing"
 
+	"github.com/programme-lv/task-zip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 
-func getTestTask(t *testing.T) *Task {
-	task, err := Read("testdata/kvadrputekl")
+func getTestTask(t *testing.T) *taskfs.Task {
+	task, err := taskfs.Read("testdata/kvadrputekl")
 	require.NoError(t, err)
 	return &task
 }
 
 func TestReadBasicInfo(t *testing.T) {
 	task := getTestTask(t)
+	BasicInfo(t, task)
+}
 
+func BasicInfo(t *testing.T, task *taskfs.Task) {
 	require.Equal(t, "kvadrputekl", task.ShortID)
 	require.Equal(t, "Kvadrātveida putekļsūcējs", task.FullName["lv"])
 	require.Equal(t, "Square vacuum cleaner", task.FullName["en"])
@@ -25,7 +29,10 @@ func TestReadBasicInfo(t *testing.T) {
 
 func TestReadOrigin(t *testing.T) {
 	task := getTestTask(t)
+	Origin(t, task)
+}
 
+func Origin(t *testing.T, task *taskfs.Task) {
 	require.Equal(t, "LIO", task.Origin.Olympiad)
 	require.Equal(t, "2023/2024", task.Origin.Year)
 	require.Equal(t, "school", task.Origin.OlyStage)
@@ -38,14 +45,20 @@ func TestReadOrigin(t *testing.T) {
 
 func TestReadMetadata(t *testing.T) {
 	task := getTestTask(t)
+	Metadata(t, task)
+}
 
+func Metadata(t *testing.T, task *taskfs.Task) {
 	require.Equal(t, []string{"bfs", "grid", "prefix-sum", "sliding-window", "shortest-path", "graphs"}, task.Metadata.ProblemTags)
 	require.Equal(t, 3, task.Metadata.Difficulty)
 }
 
 func TestReadSolutions(t *testing.T) {
 	task := getTestTask(t)
+	Solutions(t, task)
+}
 
+func Solutions(t *testing.T, task *taskfs.Task) {
 	require.Equal(t, 3, len(task.Solutions))
 
 	sol1 := task.Solutions[0]
@@ -61,7 +74,10 @@ func TestReadSolutions(t *testing.T) {
 
 func TestReadTesting(t *testing.T) {
 	task := getTestTask(t)
+	Testing(t, task)
+}
 
+func Testing(t *testing.T, task *taskfs.Task) {
 	require.Equal(t, "checker", task.Testing.TestingT)
 	require.Equal(t, 500, task.Testing.CpuLimMs)
 	require.Equal(t, 256, task.Testing.MemLimMiB)
@@ -91,7 +107,10 @@ func TestReadTesting(t *testing.T) {
 
 func TestReadStatement(t *testing.T) {
 	task := getTestTask(t)
+	Statement(t, task)
+}
 
+func Statement(t *testing.T, task *taskfs.Task) {
 	require.Len(t, task.Statement.Subtasks, 1)
 	subtask := task.Statement.Subtasks[0]
 	require.Equal(t, 20, subtask.Points)
@@ -122,7 +141,10 @@ func TestReadStatement(t *testing.T) {
 
 func TestReadScoring(t *testing.T) {
 	task := getTestTask(t)
+	Scoring(t, task)
+}
 
+func Scoring(t *testing.T, task *taskfs.Task) {
 	require.Equal(t, "min-groups", task.Scoring.ScoringT)
 	require.Equal(t, 100, task.Scoring.TotalP)
 
@@ -142,7 +164,10 @@ func TestReadScoring(t *testing.T) {
 
 func TestReadArchive(t *testing.T) {
 	task := getTestTask(t)
+	Archive(t, task)
+}
 
+func Archive(t *testing.T, task *taskfs.Task) {
 	expFilePaths := []string{
 		"task.yaml",
 		"riki/00_gen_params.py",
