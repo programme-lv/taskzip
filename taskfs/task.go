@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/BooleanCat/go-functional/v2/it"
 )
 
 // internationalization (language -> text or smth)
@@ -219,6 +221,80 @@ type Scoring struct {
 	Groups   []TestGroup // can be 1:1 to subtasks. nil if scoringT == "test-sum".
 }
 
+func (s *Scoring) validateTestSumT(noOfTests int) error {
+	if len(s.Groups) > 0 {
+		return wrap("test groups not allowed for test-sum scoring")
+	}
+	if s.TotalP != noOfTests {
+		return wrap("total points must equal number of tests for test-sum scoring")
+	}
+	return nil
+}
+
+func (s *Scoring) validateMinGroupsT(noOfSubtasks int) error {
+	hasGroups := len(s.Groups) > 0
+	if !hasGroups {
+		return wrap("test groups required for min-groups scoring")
+	}
+	if err := s.validateGroupSubtaskLinks(noOfSubtasks); err != nil {
+		return err
+	}
+	if err := s.validateGroupPointSum(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Scoring) validateGroupPointSum() error {
+	sumPoints := 0
+	for _, group := range s.Groups {
+		if group.Poins <= 0 {
+			return wrap("test group points must be positive")
+		}
+		sumPoints += group.Poins
+	}
+	if sumPoints != s.TotalP {
+		return wrap("sum of test group points must equal total points")
+	}
+	return nil
+}
+
+func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
+	tgStLink := func(group TestGroup) int { return group.Subtask }
+	stLinks := it.Map(slices.Values(s.Groups), tgStLink)
+	count := len(slices.Collect(it.FilterUnique(stLinks)))
+	if count != noOfSubtasks {
+		return wrap("all subtasks must be linked to in testgroups")
+	}
+	if noOfSubtasks == 0 && count == 0 {
+		return nil
+	}
+	if noOfSubtasks != count {
+		return wrap("testgroups must link to existing subtasks")
+	}
+
+	outOfRange := func(link int) bool { return link < 1 || link > noOfSubtasks }
+	anyOutOfRange := it.Any(it.Map(stLinks, outOfRange))
+	if anyOutOfRange {
+		return wrap("subtask link in testgroups are out of range")
+	}
+
+	return nil
+}
+
+func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
+	if s.TotalP <= 0 {
+		return wrap("total points must be positive")
+	}
+	if s.ScoringT == "test-sum" {
+		return s.validateTestSumT(noOfTests)
+	}
+	if s.ScoringT == "min-groups" {
+		return s.validateMinGroupsT(noOfSubtasks)
+	}
+	return wrap(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
+}
+
 type Statement struct {
 	Stories  i18n[StoryMd]
 	Subtasks []Subtask
@@ -242,7 +318,7 @@ type Subtask struct {
 }
 
 type TestGroup struct {
-	Points  int
+	Poins   int
 	Tests   []int
 	Public  bool // results visible during contest
 	Subtask int  // subtask it belongs to. 0 if nil

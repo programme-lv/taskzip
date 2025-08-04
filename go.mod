@@ -3,6 +3,7 @@ module github.com/programme-lv/task-zip
 go 1.24.5
 
 require (
+	github.com/BooleanCat/go-functional/v2 v2.5.1
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.10.0
 )

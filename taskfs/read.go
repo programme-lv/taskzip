@@ -408,15 +408,6 @@ var mdStorySectionI18n = i18n[map[string]MdStorySection]{
 	},
 }
 
-func mergeMaps[K comparable, V any](base, add map[K]V) map[K]V {
-	if add != nil {
-		for k, v := range add {
-			base[k] = v
-		}
-	}
-	return base
-}
-
 func trimLinesInText(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
@@ -424,14 +415,6 @@ func trimLinesInText(text string) string {
 		lines[i] = strings.ReplaceAll(lines[i], "\r", "")
 	}
 	return strings.Join(lines, "\n")
-}
-
-func sliceOfMapKeys[K comparable, V any](m map[K]V) []K {
-	keys := make([]K, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 func mapSliceElemsToNew[S any, T any](ss []S, f func(S) T) []T {
