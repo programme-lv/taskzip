@@ -10,7 +10,7 @@ id='kvadrputekl'
   mem_mib = 256
 
 [scoring]
-  type = 'group-min'
+  type = 'min-groups'
   total = 100
 
 [origin]

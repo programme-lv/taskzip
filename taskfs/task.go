@@ -248,10 +248,10 @@ func (s *Scoring) validateMinGroupsT(noOfSubtasks int) error {
 func (s *Scoring) validateGroupPointSum() error {
 	sumPoints := 0
 	for _, group := range s.Groups {
-		if group.Poins <= 0 {
+		if group.Points <= 0 {
 			return wrap("test group points must be positive")
 		}
-		sumPoints += group.Poins
+		sumPoints += group.Points
 	}
 	if sumPoints != s.TotalP {
 		return wrap("sum of test group points must equal total points")
@@ -318,10 +318,10 @@ type Subtask struct {
 }
 
 type TestGroup struct {
-	Poins   int
-	Tests   []int
-	Public  bool // results visible during contest
-	Subtask int  // subtask it belongs to. 0 if nil
+	Points  int
+	Range   [2]int // [from, to] (inclusive)
+	Public  bool   // results visible during contest
+	Subtask int    // subtask it belongs to. 0 if nil
 }
 
 type Test struct {

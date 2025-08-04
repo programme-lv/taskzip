@@ -113,3 +113,13 @@ func TestReadStatement(t *testing.T) {
 	require.Equal(t, "Izvaddatu piemērs", story.Output)
 	require.Equal(t, "Šis ir interaktīvs uzdevums.", story.Talk)
 }
+
+func TestReadScoring(t *testing.T) {
+	task := getTestTask(t)
+
+	require.Equal(t, "min-groups", task.Scoring.ScoringT)
+	require.Equal(t, 100, task.Scoring.TotalP)
+
+	require.Len(t, task.Scoring.Groups, 3)
+	// TODO:
+}

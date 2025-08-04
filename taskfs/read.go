@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -425,15 +426,6 @@ func mapSliceElemsToNew[S any, T any](ss []S, f func(S) T) []T {
 	return res
 }
 
-func containsAny(text string, substrs []string) bool {
-	for _, substr := range substrs {
-		if strings.Contains(text, substr) {
-			return true
-		}
-	}
-	return false
-}
-
 type Pair[F any, S any] struct {
 	First  F
 	Second S
@@ -671,55 +663,122 @@ func parseMultilingualMd(content string) i18n[string] {
 	return result
 }
 
-func (dir TaskDirReader) Task() (Task, error) {
+func (dir TaskDirReader) TestGroups() ([]TestGroup, error) {
+	testgroupstTxt, err := dir.ReadFile("testgroups.txt")
+	if err != nil {
+		msg := "read testgroups.txt"
+		return []TestGroup{}, wrap(msg, err)
+	}
+	testgroups := []TestGroup{}
+	lines := strings.Split(string(testgroupstTxt), "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		tg, err := parseTestGroupLine(i+1, line)
+		if err != nil {
+			msg := fmt.Sprintf("parse tg line %d", i+1)
+			return []TestGroup{}, wrap(msg, err)
+		}
+		testgroups = append(testgroups, tg)
+	}
+	return testgroups, nil
+}
+
+func parseTestGroupLine(idx int, line string) (tg TestGroup, err error) {
+	// 01: 001-005 3p (1)
+	// 02: 006-010 3p (1) *
+	// 03: 011-013 4p (2)
+	tg.Public = strings.Contains(line, "*")
+	line = strings.TrimSpace(strings.ReplaceAll(line, "*", ""))
+	for strings.Contains(line, "  ") {
+		line = strings.ReplaceAll(line, "  ", " ")
+	}
+	re := regexp.MustCompile(`^(\d+): (\d+)-(\d+) (\d+)p \((\d+)\)$`)
+	matches := re.FindAllStringSubmatch(line, -1)
+	if len(matches) != 1 || len(matches[0]) < 1 {
+		msg := "invalid structure of tg line"
+		return TestGroup{}, wrap(msg)
+	}
+	matches[0] = matches[0][1:]
+	ints := make([]int, len(matches[0]))
+	for j, match := range matches[0] {
+		ints[j], err = strconv.Atoi(match)
+		if err != nil {
+			msg := fmt.Sprintf("converting %s to int", match)
+			return TestGroup{}, wrap(msg, err)
+		}
+	}
+	if len(ints) != 4 && len(ints) != 5 {
+		msg := "invalid no. of parts"
+		return TestGroup{}, wrap(msg)
+	}
+	if ints[0] != idx {
+		msg := fmt.Sprintf("tg id %d does not match idx %d", ints[0], idx)
+		return TestGroup{}, wrap(msg)
+	}
+	tg.Range = [2]int{ints[1], ints[2]}
+	tg.Points = ints[3]
+	if len(ints) == 5 {
+		tg.Subtask = ints[4]
+	}
+	return tg, nil
+}
+
+func (dir TaskDirReader) Scoring(noOfTests int) (Scoring, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
 		msg := "read task.toml"
-		return Task{}, wrap(msg, err)
+		return Scoring{}, wrap(msg, err)
 	}
-	testing, err := dir.Testing()
+	tgs, err := dir.TestGroups()
 	if err != nil {
-		msg := "construct testing"
-		return Task{}, wrap(msg, err)
+		msg := "read testgroups.txt"
+		return Scoring{}, wrap(msg, err)
 	}
-	readme, err := dir.Readme()
-	if err != nil {
-		msg := "read readme.md"
-		return Task{}, wrap(msg, err)
+	scoring := Scoring{
+		ScoringT: taskToml.Scoring.Type,
+		TotalP:   taskToml.Scoring.Total,
+		Groups:   tgs,
 	}
-	origin, err := dir.Origin()
-	if err != nil {
-		msg := "read origin"
-		return Task{}, wrap(msg, err)
+	noOfSubtasks := len(taskToml.Subtasks)
+	if err := scoring.Validate(noOfSubtasks, noOfTests); err != nil {
+		msg := "validate scoring"
+		return Scoring{}, wrap(msg, err)
 	}
-	metadata, err := dir.Metadata()
-	if err != nil {
-		msg := "read metadata"
-		return Task{}, wrap(msg, err)
+	return scoring, nil
+}
+
+func (dir TaskDirReader) Task() (task Task, err error) {
+	var taskToml TaskToml
+	if taskToml, err = dir.Toml(); err != nil {
+		return
 	}
-	solutions, err := dir.Solutions()
-	if err != nil {
-		msg := "read solutions"
-		return Task{}, wrap(msg, err)
+	task.ShortID = taskToml.Id
+	task.FullName = taskToml.Name
+
+	if task.Testing, err = dir.Testing(); err != nil {
+		return
 	}
-	statement, err := dir.Statement()
-	if err != nil {
-		msg := "read statement"
-		return Task{}, wrap(msg, err)
+	if task.ReadMe, err = dir.Readme(); err != nil {
+		return
 	}
-	task := Task{
-		Testing:   testing,
-		ShortID:   taskToml.Id,
-		FullName:  taskToml.Name,
-		ReadMe:    readme,
-		Statement: statement,
-		Origin:    origin,
-		Scoring:   Scoring{},
-		Archive:   Archive{},
-		Solutions: solutions,
-		Metadata:  metadata,
+	if task.Origin, err = dir.Origin(); err != nil {
+		return
 	}
-	return task, nil
+	if task.Metadata, err = dir.Metadata(); err != nil {
+		return
+	}
+	if task.Solutions, err = dir.Solutions(); err != nil {
+		return
+	}
+	if task.Statement, err = dir.Statement(); err != nil {
+		return
+	}
+	if task.Scoring, err = dir.Scoring(len(task.Testing.Tests)); err != nil {
+		return
+	}
+	return
 }
 
 func (dir TaskDirReader) AllFilesWereRead() bool {
