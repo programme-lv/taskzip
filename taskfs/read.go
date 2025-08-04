@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -17,6 +16,53 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	_ "github.com/pelletier/go-toml/v2"
 )
+
+type ReadConfig struct {
+	checkAllFilesRead bool
+}
+
+func NewReadConfig(opts ...ReadOption) ReadConfig {
+	config := ReadConfig{checkAllFilesRead: true}
+	for _, opt := range opts {
+		opt(&config)
+	}
+	return config
+}
+
+type ReadOption func(*ReadConfig)
+
+func WithCheckAllFilesRead(check bool) ReadOption {
+	return func(config *ReadConfig) {
+		config.checkAllFilesRead = check
+	}
+}
+
+func Read(dirPath string, opts ...ReadOption) (Task, error) {
+	conf := NewReadConfig(opts...)
+
+	dir, err := NewTaskDir(dirPath)
+	if err != nil {
+		msg := "init dir reader"
+		return Task{}, wrap(msg, err)
+	}
+
+	task, err := dir.Task()
+	if err != nil {
+		return Task{}, err
+	}
+
+	if conf.checkAllFilesRead && !dir.AllFilesWereRead() {
+		for _, path := range dir.allPaths {
+			if !dir.readPaths[path] {
+				msg := fmt.Sprintf("file never read: %s", path)
+				return task, wrap(msg)
+			}
+		}
+		return task, wrap("no unread files found")
+	}
+
+	return task, nil
+}
 
 type TaskDirReader struct {
 	dirAbsPath string
@@ -336,15 +382,6 @@ func (dir TaskDirReader) Solutions() ([]Solution, error) {
 	return solutions, nil
 }
 
-func filter[T any](ss []T, test func(T) bool) (ret []T) {
-	for _, s := range ss {
-		if test(s) {
-			ret = append(ret, s)
-		}
-	}
-	return
-}
-
 func (dir TaskDirReader) Stories() (i18n[StoryMd], error) {
 	stories := make(i18n[StoryMd])
 	files, err := dir.ListDir("statement")
@@ -415,14 +452,6 @@ func trimLinesInText(text string) string {
 	return strings.Join(lines, "\n")
 }
 
-func mapSliceElemsToNew[S any, T any](ss []S, f func(S) T) []T {
-	res := make([]T, len(ss))
-	for i, s := range ss {
-		res[i] = f(s)
-	}
-	return res
-}
-
 type Pair[F any, S any] struct {
 	First  F
 	Second S
@@ -457,7 +486,7 @@ func SplitByDividers(content string, dividers map[string]MdStorySection) ([]Pair
 	contentSlice = filter(contentSlice, func(s string) bool {
 		return s != ""
 	})
-	contentSlice = mapSliceElemsToNew(contentSlice, func(s string) string {
+	contentSlice = mapSlice(contentSlice, func(s string) string {
 		return strings.TrimSpace(s)
 	})
 	if len(indices) != len(contentSlice) {
@@ -833,64 +862,4 @@ func (dir TaskDirReader) Task() (task Task, err error) {
 
 func (dir TaskDirReader) AllFilesWereRead() bool {
 	return len(dir.readPaths) == len(dir.allPaths)
-}
-
-type ReadConfig struct {
-	checkAllFilesRead bool
-}
-
-func NewReadConfig(opts ...ReadOption) ReadConfig {
-	config := ReadConfig{checkAllFilesRead: true}
-	for _, opt := range opts {
-		opt(&config)
-	}
-	return config
-}
-
-type ReadOption func(*ReadConfig)
-
-func WithCheckAllFilesRead(check bool) ReadOption {
-	return func(config *ReadConfig) {
-		config.checkAllFilesRead = check
-	}
-}
-
-func Read(dirPath string, opts ...ReadOption) (Task, error) {
-	conf := NewReadConfig(opts...)
-
-	dir, err := NewTaskDir(dirPath)
-	if err != nil {
-		msg := "init dir reader"
-		return Task{}, wrap(msg, err)
-	}
-
-	task, err := dir.Task()
-	if err != nil {
-		return Task{}, err
-	}
-
-	if conf.checkAllFilesRead && !dir.AllFilesWereRead() {
-		for _, path := range dir.allPaths {
-			if !dir.readPaths[path] {
-				msg := fmt.Sprintf("file never read: %s", path)
-				return task, wrap(msg)
-			}
-		}
-		return task, wrap("no unread files found")
-	}
-
-	return task, nil
-}
-
-func wrap(msg string, errs ...error) error {
-	_, file, line, _ := runtime.Caller(1)
-	dir := filepath.Base(filepath.Dir(file))
-	file = filepath.Base(file)
-	if len(errs) > 0 {
-		err := errors.Join(errs...)
-		return fmt.Errorf("[%s/%s:%d] %s\n%w", dir, file, line, msg, err)
-	} else {
-		err := errors.New(msg)
-		return fmt.Errorf("[%s/%s:%d] %w", dir, file, line, err)
-	}
 }
