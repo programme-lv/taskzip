@@ -121,5 +121,15 @@ func TestReadScoring(t *testing.T) {
 	require.Equal(t, 100, task.Scoring.TotalP)
 
 	require.Len(t, task.Scoring.Groups, 3)
-	// TODO:
+	second := task.Scoring.Groups[1]
+	require.Equal(t, [2]int{6, 10}, second.Range)
+	require.Equal(t, 3, second.Points)
+	require.Equal(t, 1, second.Subtask)
+	require.True(t, second.Public)
+
+	third := task.Scoring.Groups[2]
+	require.Equal(t, [2]int{11, 13}, third.Range)
+	require.Equal(t, 94, third.Points)
+	require.Equal(t, 2, third.Subtask)
+	require.False(t, third.Public)
 }
