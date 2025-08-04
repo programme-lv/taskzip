@@ -33,7 +33,7 @@ for i in range(0, len(subtasks)):
             NM_1 = randint(subtask["NM_min"], subtask["NM_max"])
             NM_2 = randint(subtask["NM_min"], subtask["NM_max"])
             NM = max(NM_1, NM_2)
-            def gen_params(area) -> (int, int, int, int, int):
+            def gen_params(area):
                 N = randint(1, int(sqrt(area)))
                 if randint(0, 1) == 0:
                     N = int(sqrt(area))

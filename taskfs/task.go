@@ -2,6 +2,7 @@ package taskfs
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -20,7 +21,7 @@ type Task struct {
 	Origin    Origin
 	Testing   Testing
 	Scoring   Scoring
-	Archive   Archive
+	Archive   []ArchiveFile // testcase gen scripts, og pdfs, etc.
 	Solutions []Solution
 	Metadata  Metadata
 }
@@ -374,35 +375,40 @@ type Solution struct {
 	Content  string
 }
 
-type Archive struct {
-	Files []ArchiveFile // testcase gen scripts, og pdfs, etc.
-}
-
 type ArchiveFile struct {
 	RelPath string // relative to archive root
 	Content []byte
 }
 
-func (archive *Archive) GetIllustrImgs() []ArchiveFile {
-	prefix := "/reserved/illustr/img."
-	imgs := []ArchiveFile{}
-	for _, file := range archive.Files {
+type IllustrImg struct {
+	Fname   string
+	Content []byte
+}
+
+func (t *Task) GetIllustrImgs() []IllustrImg {
+	prefix := "reserved/illustration/img."
+	imgs := []IllustrImg{}
+	for _, file := range t.Archive {
 		if strings.HasPrefix(file.RelPath, prefix) {
-			imgs = append(imgs, file)
+			imgs = append(imgs, IllustrImg{
+				Fname:   filepath.Base(file.RelPath),
+				Content: file.Content,
+			})
 		}
 	}
 	return imgs
 }
 
-func (archive *Archive) GetOgStatementPdfs() []OriginalPdf {
-	prefix := "/reserved/og-pdfs/"
+func (t *Task) GetOgStatementPdfs() []OriginalPdf {
+	prefix := "reserved/statement/"
 	ext := ".pdf"
 	pdfs := []OriginalPdf{}
-	for _, file := range archive.Files {
+	for _, file := range t.Archive {
 		if strings.HasSuffix(file.RelPath, ext) &&
 			strings.HasPrefix(file.RelPath, prefix) {
+			lang := strings.TrimSuffix(strings.TrimPrefix(file.RelPath, prefix), ext)
 			pdfs = append(pdfs, OriginalPdf{
-				Language: strings.TrimPrefix(file.RelPath, prefix),
+				Language: lang,
 				Content:  file.Content,
 			})
 		}

@@ -133,3 +133,37 @@ func TestReadScoring(t *testing.T) {
 	require.Equal(t, 2, third.Subtask)
 	require.False(t, third.Public)
 }
+
+func TestReadArchive(t *testing.T) {
+	task := getTestTask(t)
+
+	expFilePaths := []string{
+		"task.yaml",
+		"riki/00_gen_params.py",
+		"riki/hello.txt",
+		"reserved/illustration/img.jpg",
+		"reserved/statement/lv.pdf",
+	}
+
+	taskYamlExpContent := "name: 'Kp'"
+
+	actualPaths := []string{}
+	actualTaskYamlContent := ""
+	for _, f := range task.Archive {
+		actualPaths = append(actualPaths, f.RelPath)
+		if f.RelPath == "task.yaml" {
+			actualTaskYamlContent = string(f.Content)
+		}
+	}
+
+	require.ElementsMatch(t, expFilePaths, actualPaths)
+	require.Contains(t, actualTaskYamlContent, taskYamlExpContent)
+
+	ogPdfs := task.GetOgStatementPdfs()
+	require.Len(t, ogPdfs, 1)
+	require.Equal(t, "lv", ogPdfs[0].Language)
+
+	illustrImgs := task.GetIllustrImgs()
+	require.Len(t, illustrImgs, 1)
+	require.Equal(t, "img.jpg", illustrImgs[0].Fname)
+}

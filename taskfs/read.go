@@ -101,8 +101,7 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 
 	bytes, err := os.ReadFile(clean)
 	if err != nil {
-		msg := "read file"
-		return nil, wrap(msg, err)
+		return nil, err
 	}
 	dir.readPaths[filePathRel] = true
 	return bytes, nil
@@ -115,9 +114,7 @@ func (dir TaskDirReader) ListDir(dirRelPath string) ([]string, error) {
 	for _, path := range dir.allPaths {
 		if strings.HasPrefix(path, prefix) {
 			rel := strings.TrimPrefix(path, prefix)
-			if !strings.Contains(rel, string(filepath.Separator)) {
-				paths = append(paths, rel)
-			}
+			paths = append(paths, rel)
 		}
 	}
 	return paths, nil
@@ -749,6 +746,27 @@ func (dir TaskDirReader) Scoring(noOfTests int) (Scoring, error) {
 	return scoring, nil
 }
 
+func (dir TaskDirReader) Archive() ([]ArchiveFile, error) {
+	files, err := dir.ListDir("archive")
+	if err != nil {
+		msg := "list archive dir"
+		return []ArchiveFile{}, wrap(msg, err)
+	}
+	archive := []ArchiveFile{}
+	for _, file := range files {
+		content, err := dir.ReadFile(filepath.Join("archive", file))
+		if err != nil {
+			msg := fmt.Sprintf("read archive file %s", file)
+			return []ArchiveFile{}, wrap(msg, err)
+		}
+		archive = append(archive, ArchiveFile{
+			RelPath: file,
+			Content: content,
+		})
+	}
+	return archive, nil
+}
+
 func (dir TaskDirReader) Task() (task Task, err error) {
 	var taskToml TaskToml
 	if taskToml, err = dir.Toml(); err != nil {
@@ -776,6 +794,9 @@ func (dir TaskDirReader) Task() (task Task, err error) {
 		return
 	}
 	if task.Scoring, err = dir.Scoring(len(task.Testing.Tests)); err != nil {
+		return
+	}
+	if task.Archive, err = dir.Archive(); err != nil {
 		return
 	}
 	return
@@ -816,8 +837,7 @@ func Read(dirPath string, opts ...ReadOption) (Task, error) {
 
 	task, err := dir.Task()
 	if err != nil {
-		msg := "read task"
-		return Task{}, wrap(msg, err)
+		return Task{}, err
 	}
 
 	if conf.checkAllFilesRead && !dir.AllFilesWereRead() {
