@@ -8,39 +8,45 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/programme-lv/task-zip/common/errwrap"
 )
 
 func Write(task Task, dirPath string) error {
 	dirAbsPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		msg := fmt.Sprintf("get abs path of %s", dirPath)
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 
 	if doesDirExist(dirAbsPath) {
 		msg := fmt.Sprintf("dir %s already exists", dirAbsPath)
-		return wrap(msg)
+		return errwrap.ServerError(msg, nil)
 	}
 
 	parentDir := filepath.Dir(dirAbsPath)
 	if !doesDirExist(parentDir) {
 		msg := fmt.Sprintf("parent dir %s does not exist", parentDir)
-		return wrap(msg)
+		return errwrap.ServerError(msg, nil)
 	}
 
 	err = os.Mkdir(dirAbsPath, 0755)
 	if err != nil {
 		msg := fmt.Sprintf("create dir %s", dirAbsPath)
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 
 	writer, err := NewTaskWriter(dirAbsPath, task)
 	if err != nil {
 		msg := fmt.Sprintf("init task dir writer %s", dirAbsPath)
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 
 	return writer.WriteTask()
+}
+
+func doesDirExist(dirPath string) bool {
+	_, err := os.Stat(dirPath)
+	return err == nil
 }
 
 type TaskWriter struct {
@@ -56,11 +62,11 @@ func NewTaskWriter(
 	files, err := os.ReadDir(taskDirAbsPath)
 	if err != nil {
 		msg := fmt.Sprintf("read task dir %s", taskDirAbsPath)
-		return TaskWriter{}, wrap(msg, err)
+		return TaskWriter{}, errwrap.ServerError(msg, err)
 	}
 	if len(files) > 0 {
 		msg := fmt.Sprintf("dir %s is not empty", taskDirAbsPath)
-		return TaskWriter{}, wrap(msg)
+		return TaskWriter{}, errwrap.ServerError(msg, nil)
 	}
 
 	// TODO: validate task
@@ -114,8 +120,7 @@ func (w TaskWriter) WriteTask() error {
 func (w TaskWriter) Readme() error {
 	err := w.WriteFile("readme.md", []byte(w.task.ReadMe))
 	if err != nil {
-		msg := "write readme.md"
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 	return nil
 }
@@ -124,8 +129,7 @@ func (w TaskWriter) WriteFile(path string, content []byte) error {
 	absPath := filepath.Join(w.path, path)
 	err := os.WriteFile(absPath, content, 0755)
 	if err != nil {
-		msg := fmt.Sprintf("write file %s", path)
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 	return nil
 }
@@ -134,8 +138,7 @@ func (w TaskWriter) CreateDir(path string) error {
 	absPath := filepath.Join(w.path, path)
 	err := os.Mkdir(absPath, 0755)
 	if err != nil {
-		msg := fmt.Sprintf("create dir %s", path)
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 	return nil
 }
@@ -151,13 +154,11 @@ func (w TaskWriter) TaskToml() error {
 
 	err := enc.Encode(taskToml)
 	if err != nil {
-		msg := fmt.Sprintf("encode task.toml file %s", tomlPath)
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 	err = w.WriteFile(tomlPath, buf.Bytes())
 	if err != nil {
-		msg := fmt.Sprintf("write task.toml file %s", tomlPath)
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 	return nil
 }
@@ -165,23 +166,20 @@ func (w TaskWriter) TaskToml() error {
 func (w TaskWriter) Testlib() error {
 	err := w.CreateDir("testlib")
 	if err != nil {
-		msg := "create testlib directory"
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 
 	if w.task.Testing.Checker != "" {
 		err := w.WriteFile("testlib/checker.cpp", []byte(w.task.Testing.Checker))
 		if err != nil {
-			msg := "write non-empty checker.cpp"
-			return wrap(msg, err)
+			return errwrap.AddTrace(err)
 		}
 	}
 
 	if w.task.Testing.Interactor != "" {
 		err := w.WriteFile("testlib/interactor.cpp", []byte(w.task.Testing.Interactor))
 		if err != nil {
-			msg := "write non-empty interactor.cpp"
-			return wrap(msg, err)
+			return errwrap.AddTrace(err)
 		}
 	}
 	return nil
@@ -190,8 +188,7 @@ func (w TaskWriter) Testlib() error {
 func (w TaskWriter) Tests() error {
 	err := w.CreateDir("tests")
 	if err != nil {
-		msg := "create tests directory"
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 
 	for i, test := range w.task.Testing.Tests {
@@ -199,13 +196,11 @@ func (w TaskWriter) Tests() error {
 		outPath := fmt.Sprintf("tests/%03do.txt", i+1)
 		err := w.WriteFile(inPath, []byte(test.Input))
 		if err != nil {
-			msg := fmt.Sprintf("write test %d input", i)
-			return wrap(msg, err)
+			return errwrap.AddTrace(err)
 		}
 		err = w.WriteFile(outPath, []byte(test.Answer))
 		if err != nil {
-			msg := fmt.Sprintf("write test %d output", i)
-			return wrap(msg, err)
+			return errwrap.AddTrace(err)
 		}
 	}
 
@@ -216,16 +211,14 @@ func (w TaskWriter) Solutions() error {
 	solutionsDir := "solutions"
 	err := w.CreateDir("solutions")
 	if err != nil {
-		msg := "create solutions directory"
-		return wrap(msg, err)
+		return errwrap.AddTrace(err)
 	}
 
-	for i, sol := range w.task.Solutions {
+	for _, sol := range w.task.Solutions {
 		solPath := filepath.Join(solutionsDir, sol.Fname)
 		err := w.WriteFile(solPath, []byte(sol.Content))
 		if err != nil {
-			msg := fmt.Sprintf("write solution %d", i)
-			return wrap(msg, err)
+			return errwrap.AddTrace(err)
 		}
 	}
 	return nil
@@ -236,7 +229,7 @@ func (w TaskWriter) Examples() error {
 	err := w.CreateDir("examples")
 	if err != nil {
 		msg := "create examples directory"
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 
 	for i, example := range w.task.Statement.Examples {
@@ -246,12 +239,12 @@ func (w TaskWriter) Examples() error {
 		err := w.WriteFile(inPath, []byte(example.Input))
 		if err != nil {
 			msg := fmt.Sprintf("write example %d input", i)
-			return wrap(msg, err)
+			return errwrap.ServerError(msg, err)
 		}
 		err = w.WriteFile(outPath, []byte(example.Output))
 		if err != nil {
 			msg := fmt.Sprintf("write example %d output", i)
-			return wrap(msg, err)
+			return errwrap.ServerError(msg, err)
 		}
 		mdNoteContent := ""
 		for lang, note := range example.MdNote {
@@ -260,7 +253,7 @@ func (w TaskWriter) Examples() error {
 		err = w.WriteFile(notePath, []byte(mdNoteContent))
 		if err != nil {
 			msg := fmt.Sprintf("write example %d note", i)
-			return wrap(msg, err)
+			return errwrap.ServerError(msg, err)
 		}
 	}
 	return nil
@@ -287,7 +280,7 @@ func (w TaskWriter) TestGroups() error {
 	err := w.WriteFile(filePath, []byte(content))
 	if err != nil {
 		msg := "write testgroups.txt"
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 	return nil
 }
@@ -296,7 +289,7 @@ func (w TaskWriter) Statement() error {
 	err := w.CreateDir("statement")
 	if err != nil {
 		msg := "create statement directory"
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 
 	// Write story files for each language
@@ -306,7 +299,7 @@ func (w TaskWriter) Statement() error {
 		err := w.WriteFile(storyPath, []byte(content))
 		if err != nil {
 			msg := fmt.Sprintf("write story %s", lang)
-			return wrap(msg, err)
+			return errwrap.ServerError(msg, err)
 		}
 	}
 
@@ -316,7 +309,7 @@ func (w TaskWriter) Statement() error {
 		err := w.WriteFile(imagePath, image.Content)
 		if err != nil {
 			msg := fmt.Sprintf("write image %s", image.Fname)
-			return wrap(msg, err)
+			return errwrap.ServerError(msg, err)
 		}
 	}
 
@@ -398,7 +391,7 @@ func (w TaskWriter) Archive() error {
 	err := w.CreateDir("archive")
 	if err != nil {
 		msg := "create archive directory"
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 
 	for _, file := range w.task.Archive.Files {
@@ -409,7 +402,7 @@ func (w TaskWriter) Archive() error {
 			err := w.CreateDirAll(archiveSubDir)
 			if err != nil {
 				msg := fmt.Sprintf("create archive subdirectory %s", dir)
-				return wrap(msg, err)
+				return errwrap.ServerError(msg, err)
 			}
 		}
 
@@ -417,7 +410,7 @@ func (w TaskWriter) Archive() error {
 		err := w.WriteFile(filePath, file.Content)
 		if err != nil {
 			msg := fmt.Sprintf("write archive file %s", file.RelPath)
-			return wrap(msg, err)
+			return errwrap.ServerError(msg, err)
 		}
 	}
 
@@ -429,7 +422,7 @@ func (w TaskWriter) CreateDirAll(path string) error {
 	err := os.MkdirAll(absPath, 0755)
 	if err != nil {
 		msg := fmt.Sprintf("create directory %s", path)
-		return wrap(msg, err)
+		return errwrap.ServerError(msg, err)
 	}
 	return nil
 }

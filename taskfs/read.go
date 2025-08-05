@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/common/fn"
 )
 
 type ReadConfig struct {
@@ -42,22 +44,23 @@ func Read(dirPath string, opts ...ReadOption) (Task, error) {
 	dir, err := NewTaskDir(dirPath)
 	if err != nil {
 		msg := "init dir reader"
-		return Task{}, wrap(msg, err)
+		return Task{}, errwrap.ServerError(msg, err)
 	}
 
 	task, err := dir.Task()
 	if err != nil {
-		return Task{}, err
+		return Task{}, errwrap.AddTrace(err)
 	}
 
 	if conf.checkAllFilesRead && !dir.AllFilesWereRead() {
 		for _, path := range dir.allPaths {
 			if !dir.readPaths[path] {
-				msg := fmt.Sprintf("file never read: %s", path)
-				return task, wrap(msg)
+				msg := fmt.Sprintf("file never read when parsing task: %s", path)
+				return task, errwrap.ClientError(msg)
 			}
 		}
-		return task, wrap("no unread files found")
+		msg := "no unread files found but dir.AllFilesWereRead() is false"
+		return task, errwrap.ServerError(msg, nil)
 	}
 
 	return task, nil
@@ -73,7 +76,7 @@ func NewTaskDir(dirAbsPath string) (TaskDirReader, error) {
 	dirAbsPath, err := filepath.Abs(dirAbsPath)
 	if err != nil {
 		msg := "get absolute path"
-		return TaskDirReader{}, wrap(msg, err)
+		return TaskDirReader{}, errwrap.ServerError(msg, err)
 	}
 	dir := TaskDirReader{
 		dirAbsPath: dirAbsPath,
@@ -82,7 +85,7 @@ func NewTaskDir(dirAbsPath string) (TaskDirReader, error) {
 	err = dir.readAllPathsInDir()
 	if err != nil {
 		msg := "read all paths in dir"
-		return TaskDirReader{}, wrap(msg, err)
+		return TaskDirReader{}, errwrap.ServerError(msg, err)
 	}
 	return dir, nil
 }
@@ -98,8 +101,7 @@ func (dir *TaskDirReader) readAllPathsInDir() error {
 		if !d.IsDir() {
 			info, err := d.Info()
 			if err != nil {
-				msg := "get file info"
-				return wrap(msg, err)
+				return errwrap.AddTrace(err)
 			}
 
 			totalSize += info.Size()
@@ -107,24 +109,24 @@ func (dir *TaskDirReader) readAllPathsInDir() error {
 
 			if totalSize > 512*1024*1024 { // 512 MB
 				msg := "directory exceeds maximum size of 512 MB"
-				return wrap(msg)
+				return errwrap.ClientError(msg)
 			}
 			if fileCount > 10000 {
 				msg := "directory contains more than 10000 files"
-				return wrap(msg)
+				return errwrap.ClientError(msg)
 			}
 
 			relPath, err := filepath.Rel(dir.dirAbsPath, path)
 			if err != nil {
 				msg := "get relative path"
-				return wrap(msg, err)
+				return errwrap.ServerError(msg, err)
 			}
 			dir.allPaths = append(dir.allPaths, relPath)
 		}
 		return nil
 	})
 	if err != nil {
-		return wrap("walk directory", err)
+		return errwrap.ServerError("walk directory", err)
 	}
 	return nil
 }
@@ -137,16 +139,16 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 	filePathRel, err := filepath.Rel(dir.dirAbsPath, clean)
 	if err != nil {
 		msg := "get relative path"
-		return nil, wrap(msg, err)
+		return nil, errwrap.ServerError(msg, err)
 	}
 	if strings.Contains(filePathRel, "..") {
 		msg := fmt.Sprintf("path %s attempts to leave task directory", relPath)
-		return nil, wrap(msg)
+		return nil, errwrap.ServerError(msg, nil)
 	}
 
 	bytes, err := os.ReadFile(clean)
 	if err != nil {
-		return nil, err
+		return nil, errwrap.AddTrace(err)
 	}
 	dir.readPaths[filePathRel] = true
 	return bytes, nil
@@ -168,8 +170,7 @@ func (dir TaskDirReader) ListDir(dirRelPath string) ([]string, error) {
 func (dir TaskDirReader) Toml() (TaskToml, error) {
 	content, err := dir.ReadFile("task.toml")
 	if err != nil {
-		msg := "read task.toml"
-		return TaskToml{}, wrap(msg, err)
+		return TaskToml{}, errwrap.AddTrace(err)
 	}
 	taskToml := TaskToml{}
 	d := toml.NewDecoder(bytes.NewReader(content))
@@ -179,10 +180,9 @@ func (dir TaskDirReader) Toml() (TaskToml, error) {
 		var details *toml.StrictMissingError
 		if errors.As(err, &details) {
 			msg := details.String()
-			return TaskToml{}, wrap(msg, err)
+			return TaskToml{}, errwrap.ServerError(msg, err)
 		}
-		msg := "decode task.toml"
-		return TaskToml{}, wrap(msg, err)
+		return TaskToml{}, errwrap.AddTrace(err)
 	}
 	return taskToml, nil
 }
@@ -191,8 +191,7 @@ func (dir TaskDirReader) Checker() (string, error) {
 	path := "testlib/checker.cpp"
 	content, err := dir.ReadFile(path)
 	if err != nil {
-		msg := "read checker.cpp"
-		return "", wrap(msg, err)
+		return "", errwrap.AddTrace(err)
 	}
 	return string(content), nil
 }
@@ -201,8 +200,7 @@ func (dir TaskDirReader) Interactor() (string, error) {
 	path := "testlib/interactor.cpp"
 	content, err := dir.ReadFile(path)
 	if err != nil {
-		msg := "read interactor.cpp"
-		return "", wrap(msg, err)
+		return "", errwrap.AddTrace(err)
 	}
 	return string(content), nil
 }
@@ -212,15 +210,15 @@ func (dir TaskDirReader) Tests() ([]Test, error) {
 	testFilePaths, err := dir.ListDir(testDirPath)
 	if err != nil {
 		msg := "list tests"
-		return nil, wrap(msg, err)
+		return nil, errwrap.ServerError(msg, err)
 	}
 	if len(testFilePaths)%2 != 0 {
 		msg := "number of tests must be even"
-		return nil, wrap(msg)
+		return nil, errwrap.ClientError(msg)
 	}
 	if len(testFilePaths) > 999*2 {
 		msg := "max 999 tests allowed (2 files per test)"
-		return nil, wrap(msg)
+		return nil, errwrap.ClientError(msg)
 	}
 	slices.Sort(testFilePaths)
 	tests := make([]Test, len(testFilePaths)/2)
@@ -229,23 +227,21 @@ func (dir TaskDirReader) Tests() ([]Test, error) {
 		expOutFname := fmt.Sprintf("%03do.txt", (i/2)+1)
 		if testFilePaths[i] != expInFname {
 			msg := fmt.Sprintf("input test file path is incorrect: %s != %s", testFilePaths[i], expInFname)
-			return nil, wrap(msg)
+			return nil, errwrap.ClientError(msg)
 		}
 		if testFilePaths[i+1] != expOutFname {
 			msg := fmt.Sprintf("output test file path is incorrect: %s != %s", testFilePaths[i+1], expOutFname)
-			return nil, wrap(msg)
+			return nil, errwrap.ClientError(msg)
 		}
 		inPath := filepath.Join(testDirPath, testFilePaths[i])
 		input, err := dir.ReadFile(inPath)
 		if err != nil {
-			msg := "read test input"
-			return nil, wrap(msg, err)
+			return nil, errwrap.AddTrace(err)
 		}
 		outPath := filepath.Join(testDirPath, testFilePaths[i+1])
 		output, err := dir.ReadFile(outPath)
 		if err != nil {
-			msg := "read test output"
-			return nil, wrap(msg, err)
+			return nil, errwrap.AddTrace(err)
 		}
 		tests[i/2] = Test{Input: string(input), Answer: string(output)}
 	}
@@ -255,8 +251,7 @@ func (dir TaskDirReader) Tests() ([]Test, error) {
 func (dir TaskDirReader) Testing() (Testing, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
-		msg := "read task.toml"
-		return Testing{}, wrap(msg, err)
+		return Testing{}, errwrap.AddTrace(err)
 	}
 	t := Testing{
 		TestingT:   taskToml.Testing.Type,
@@ -269,37 +264,33 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 	if taskToml.Testing.Type == "checker" {
 		checker, err := dir.Checker()
 		if err != nil {
-			msg := "type is checker"
-			return Testing{}, wrap(msg, err)
+			return Testing{}, errwrap.AddTrace(err)
 		}
 		if checker == "" {
 			msg := "checker.cpp is empty"
-			return Testing{}, wrap(msg)
+			return Testing{}, errwrap.ClientError(msg)
 		}
 		t.Checker = checker
 	}
 	if taskToml.Testing.Type == "interactor" {
 		interactor, err := dir.Interactor()
 		if err != nil {
-			msg := "type is interactor"
-			return Testing{}, wrap(msg, err)
+			return Testing{}, errwrap.AddTrace(err)
 		}
 		if interactor == "" {
 			msg := "interactor.cpp is empty"
-			return Testing{}, wrap(msg)
+			return Testing{}, errwrap.ClientError(msg)
 		}
 		t.Interactor = interactor
 	}
 	tests, err := dir.Tests()
 	if err != nil {
-		msg := "read tests"
-		return Testing{}, wrap(msg, err)
+		return Testing{}, errwrap.AddTrace(err)
 	}
 	t.Tests = tests
 	err = t.Validate()
 	if err != nil {
-		msg := "invalid testing component"
-		return Testing{}, wrap(msg, err)
+		return Testing{}, errwrap.AddTrace(err)
 	}
 	return t, nil
 }
@@ -307,8 +298,7 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 func (dir TaskDirReader) Readme() (string, error) {
 	content, err := dir.ReadFile("readme.md")
 	if err != nil {
-		msg := "read readme.md"
-		return "", wrap(msg, err)
+		return "", errwrap.AddTrace(err)
 	}
 	return string(content), nil
 }
@@ -316,8 +306,7 @@ func (dir TaskDirReader) Readme() (string, error) {
 func (dir TaskDirReader) Origin() (Origin, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
-		msg := "read task.toml"
-		return Origin{}, wrap(msg, err)
+		return Origin{}, errwrap.AddTrace(err)
 	}
 
 	o := Origin{
@@ -330,8 +319,7 @@ func (dir TaskDirReader) Origin() (Origin, error) {
 	}
 	err = o.Validate()
 	if err != nil {
-		msg := "invalid origin"
-		return Origin{}, wrap(msg, err)
+		return Origin{}, errwrap.AddTrace(err)
 	}
 	return o, nil
 }
@@ -339,8 +327,7 @@ func (dir TaskDirReader) Origin() (Origin, error) {
 func (dir TaskDirReader) Metadata() (Metadata, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
-		msg := "read task.toml"
-		return Metadata{}, wrap(msg, err)
+		return Metadata{}, errwrap.AddTrace(err)
 	}
 
 	m := Metadata{
@@ -349,8 +336,7 @@ func (dir TaskDirReader) Metadata() (Metadata, error) {
 	}
 	err = m.Validate()
 	if err != nil {
-		msg := "invalid metadata"
-		return Metadata{}, wrap(msg, err)
+		return Metadata{}, errwrap.AddTrace(err)
 	}
 	return m, nil
 }
@@ -358,8 +344,7 @@ func (dir TaskDirReader) Metadata() (Metadata, error) {
 func (dir TaskDirReader) Solutions() ([]Solution, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
-		msg := "read task.toml"
-		return []Solution{}, wrap(msg, err)
+		return []Solution{}, errwrap.AddTrace(err)
 	}
 
 	solutions := make([]Solution, len(taskToml.Solutions))
@@ -367,8 +352,7 @@ func (dir TaskDirReader) Solutions() ([]Solution, error) {
 		solPath := filepath.Join("solutions", sol.Fname)
 		content, err := dir.ReadFile(solPath)
 		if err != nil {
-			msg := fmt.Sprintf("read solution file %s", sol.Fname)
-			return []Solution{}, wrap(msg, err)
+			return []Solution{}, errwrap.AddTrace(err)
 		}
 
 		solutions[i] = Solution{
@@ -386,22 +370,22 @@ func (dir TaskDirReader) Stories() (i18n[StoryMd], error) {
 	files, err := dir.ListDir("statement")
 	if err != nil {
 		msg := "list statement dir"
-		return i18n[StoryMd]{}, wrap(msg, err)
+		return i18n[StoryMd]{}, errwrap.ServerError(msg, err)
 	}
-	mdFiles := filter(files, func(file string) bool {
+	mdFiles := fn.Filter(files, func(file string) bool {
 		return strings.HasSuffix(file, ".md")
 	})
 	for _, file := range mdFiles {
 		content, err := dir.ReadFile(filepath.Join("statement", file))
 		if err != nil {
 			msg := fmt.Sprintf("read story %s", file)
-			return i18n[StoryMd]{}, wrap(msg, err)
+			return i18n[StoryMd]{}, errwrap.ServerError(msg, err)
 		}
 		lang := strings.TrimSuffix(file, ".md")
 		story, err := ParseMdStory(string(content), lang)
 		if err != nil {
 			msg := fmt.Sprintf("parse story %s", file)
-			return i18n[StoryMd]{}, wrap(msg, err)
+			return i18n[StoryMd]{}, errwrap.ServerError(msg, err)
 		}
 		stories[lang] = story
 	}
@@ -467,7 +451,7 @@ func SplitByDividers(content string, dividers map[string]MdStorySection) ([]Pair
 		}
 		if fst != lst {
 			msg := fmt.Sprintf("divider %s occurs multiple times", divider)
-			return nil, wrap(msg)
+			return nil, errwrap.ClientError(msg)
 		}
 		indices = append(indices, Pair[int, MdStorySection]{fst, section})
 		content = strings.ReplaceAll(content, dividerStr, "#")
@@ -482,15 +466,15 @@ func SplitByDividers(content string, dividers map[string]MdStorySection) ([]Pair
 		return indices[i].First < indices[j].First
 	})
 	contentSlice := strings.Split(content, "#")
-	contentSlice = filter(contentSlice, func(s string) bool {
+	contentSlice = fn.Filter(contentSlice, func(s string) bool {
 		return s != ""
 	})
-	contentSlice = mapSlice(contentSlice, func(s string) string {
+	contentSlice = fn.Map(contentSlice, func(s string) string {
 		return strings.TrimSpace(s)
 	})
 	if len(indices) != len(contentSlice) {
 		msg := fmt.Sprintf("dividers (%d) != content segments (%d)", len(indices), len(contentSlice))
-		return nil, wrap(msg)
+		return nil, errwrap.ClientError(msg)
 	}
 	parsed := make([]Pair[MdStorySection, string], len(indices))
 	for i, index := range indices {
@@ -507,12 +491,12 @@ func ParseMdStory(content string, lang string) (StoryMd, error) {
 		parsed, err := SplitByDividers(content, translation)
 		if err != nil {
 			msg := "split by dividers"
-			return StoryMd{}, wrap(msg, err)
+			return StoryMd{}, errwrap.ServerError(msg, err)
 		}
 		if len(parsed) > 0 {
 			if foundLang {
 				msg := "story section dividers in multiple langs"
-				return StoryMd{}, wrap(msg)
+				return StoryMd{}, errwrap.ClientError(msg)
 			}
 			foundLang = true
 		}
@@ -528,7 +512,7 @@ func (dir TaskDirReader) Statement() (Statement, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
 		msg := "read task.toml"
-		return Statement{}, wrap(msg, err)
+		return Statement{}, errwrap.ServerError(msg, err)
 	}
 
 	subtasks := make([]Subtask, len(taskToml.Subtasks))
@@ -543,19 +527,19 @@ func (dir TaskDirReader) Statement() (Statement, error) {
 	examples, err := dir.Examples()
 	if err != nil {
 		msg := "read examples"
-		return Statement{}, wrap(msg, err)
+		return Statement{}, errwrap.ServerError(msg, err)
 	}
 
 	stories, err := dir.Stories()
 	if err != nil {
 		msg := "read stories"
-		return Statement{}, wrap(msg, err)
+		return Statement{}, errwrap.ServerError(msg, err)
 	}
 
 	imagePaths, err := dir.ListDir("statement")
 	if err != nil {
 		msg := "list statement dir"
-		return Statement{}, wrap(msg, err)
+		return Statement{}, errwrap.ServerError(msg, err)
 	}
 	isImage := func(path string) bool {
 		exts := []string{".png", ".jpg", ".jpeg"}
@@ -566,13 +550,13 @@ func (dir TaskDirReader) Statement() (Statement, error) {
 		}
 		return false
 	}
-	imagePaths = filter(imagePaths, isImage)
+	imagePaths = fn.Filter(imagePaths, isImage)
 	images := make([]Image, len(imagePaths))
 	for i, path := range imagePaths {
 		content, err := dir.ReadFile(filepath.Join("statement", path))
 		if err != nil {
 			msg := fmt.Sprintf("read image %s", path)
-			return Statement{}, wrap(msg, err)
+			return Statement{}, errwrap.ServerError(msg, err)
 		}
 		images[i] = Image{
 			Fname:   path,
@@ -594,20 +578,20 @@ func (dir TaskDirReader) Example(index int) (Example, error) {
 	noteContent, err := dir.ReadFile(notePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		msg := fmt.Sprintf("read example note %d", index)
-		return Example{}, wrap(msg, err)
+		return Example{}, errwrap.ServerError(msg, err)
 	}
 	note := parseMultilingualMd(string(noteContent))
 	inPath := fmt.Sprintf("examples/%03di.txt", index)
 	inContent, err := dir.ReadFile(inPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		msg := fmt.Sprintf("read example input %d", index)
-		return Example{}, wrap(msg, err)
+		return Example{}, errwrap.ServerError(msg, err)
 	}
 	outPath := fmt.Sprintf("examples/%03do.txt", index)
 	outContent, err := dir.ReadFile(outPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		msg := fmt.Sprintf("read example output %d", index)
-		return Example{}, wrap(msg, err)
+		return Example{}, errwrap.ServerError(msg, err)
 	}
 	return Example{
 		Input:  string(inContent),
@@ -644,7 +628,7 @@ func (dir TaskDirReader) Examples() ([]Example, error) {
 	files, err := dir.ListDir("examples")
 	if err != nil {
 		msg := "list examples dir"
-		return []Example{}, wrap(msg, err)
+		return []Example{}, errwrap.ServerError(msg, err)
 	}
 
 	idxMap := make(map[int]bool)
@@ -652,15 +636,14 @@ func (dir TaskDirReader) Examples() ([]Example, error) {
 		index, err := strconv.Atoi(file[:3])
 		if err != nil {
 			msg := fmt.Sprintf("parse example index %s", file)
-			return []Example{}, wrap(msg, err)
+			return []Example{}, errwrap.ClientError(msg)
 		}
 		idxMap[index] = true
 	}
 
 	maxIdx, err := ensureConsecutiveIdsFrom1(idxMap)
 	if err != nil {
-		msg := "ensure consecutive ids"
-		return []Example{}, wrap(msg, err)
+		return []Example{}, errwrap.ClientError(err.Error())
 	}
 
 	examples := make([]Example, maxIdx)
@@ -668,7 +651,7 @@ func (dir TaskDirReader) Examples() ([]Example, error) {
 		example, err := dir.Example(i)
 		if err != nil {
 			msg := fmt.Sprintf("read example %d", i)
-			return []Example{}, wrap(msg, err)
+			return []Example{}, errwrap.ServerError(msg, err)
 		}
 		examples[i-1] = example
 	}
@@ -721,7 +704,7 @@ func (dir TaskDirReader) TestGroups() ([]TestGroup, error) {
 	testgroupstTxt, err := dir.ReadFile("testgroups.txt")
 	if err != nil {
 		msg := "read testgroups.txt"
-		return []TestGroup{}, wrap(msg, err)
+		return []TestGroup{}, errwrap.ServerError(msg, err)
 	}
 	testgroups := []TestGroup{}
 	lines := strings.Split(string(testgroupstTxt), "\n")
@@ -732,7 +715,7 @@ func (dir TaskDirReader) TestGroups() ([]TestGroup, error) {
 		tg, err := parseTestGroupLine(i+1, line)
 		if err != nil {
 			msg := fmt.Sprintf("parse tg line %d", i+1)
-			return []TestGroup{}, wrap(msg, err)
+			return []TestGroup{}, errwrap.ServerError(msg, err)
 		}
 		testgroups = append(testgroups, tg)
 	}
@@ -752,7 +735,7 @@ func parseTestGroupLine(idx int, line string) (tg TestGroup, err error) {
 	matches := re.FindAllStringSubmatch(line, -1)
 	if len(matches) != 1 || len(matches[0]) < 1 {
 		msg := "invalid structure of tg line"
-		return TestGroup{}, wrap(msg)
+		return TestGroup{}, errwrap.ClientError(msg)
 	}
 	matches[0] = matches[0][1:]
 	ints := make([]int, len(matches[0]))
@@ -760,16 +743,16 @@ func parseTestGroupLine(idx int, line string) (tg TestGroup, err error) {
 		ints[j], err = strconv.Atoi(match)
 		if err != nil {
 			msg := fmt.Sprintf("converting %s to int", match)
-			return TestGroup{}, wrap(msg, err)
+			return TestGroup{}, errwrap.ClientError(msg)
 		}
 	}
 	if len(ints) != 4 && len(ints) != 5 {
 		msg := "invalid no. of parts"
-		return TestGroup{}, wrap(msg)
+		return TestGroup{}, errwrap.ClientError(msg)
 	}
 	if ints[0] != idx {
 		msg := fmt.Sprintf("tg id %d does not match idx %d", ints[0], idx)
-		return TestGroup{}, wrap(msg)
+		return TestGroup{}, errwrap.ClientError(msg)
 	}
 	tg.Range = [2]int{ints[1], ints[2]}
 	tg.Points = ints[3]
@@ -783,12 +766,12 @@ func (dir TaskDirReader) Scoring(noOfTests int) (Scoring, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
 		msg := "read task.toml"
-		return Scoring{}, wrap(msg, err)
+		return Scoring{}, errwrap.ServerError(msg, err)
 	}
 	tgs, err := dir.TestGroups()
 	if err != nil {
 		msg := "read testgroups.txt"
-		return Scoring{}, wrap(msg, err)
+		return Scoring{}, errwrap.ServerError(msg, err)
 	}
 	scoring := Scoring{
 		ScoringT: taskToml.Scoring.Type,
@@ -798,7 +781,7 @@ func (dir TaskDirReader) Scoring(noOfTests int) (Scoring, error) {
 	noOfSubtasks := len(taskToml.Subtasks)
 	if err := scoring.Validate(noOfSubtasks, noOfTests); err != nil {
 		msg := "validate scoring"
-		return Scoring{}, wrap(msg, err)
+		return Scoring{}, errwrap.ServerError(msg, err)
 	}
 	return scoring, nil
 }
@@ -807,14 +790,14 @@ func (dir TaskDirReader) Archive() (Archive, error) {
 	files, err := dir.ListDir("archive")
 	if err != nil {
 		msg := "list archive dir"
-		return Archive{}, wrap(msg, err)
+		return Archive{}, errwrap.ServerError(msg, err)
 	}
 	archive := Archive{}
 	for _, file := range files {
 		content, err := dir.ReadFile(filepath.Join("archive", file))
 		if err != nil {
 			msg := fmt.Sprintf("read archive file %s", file)
-			return Archive{}, wrap(msg, err)
+			return Archive{}, errwrap.ServerError(msg, err)
 		}
 		archive.Files = append(archive.Files, ArchiveFile{
 			RelPath: file,

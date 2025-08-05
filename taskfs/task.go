@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/programme-lv/task-zip/common/errwrap"
 )
 
 // internationalization (language -> text or smth)
@@ -34,24 +35,24 @@ type Metadata struct {
 // validates sanity of the metadata configuration
 func (m *Metadata) Validate() error {
 	if m.Difficulty < 1 || m.Difficulty > 6 {
-		return wrap("difficulty must be between 1 and 6")
+		return errwrap.ClientError("difficulty must be between 1 and 6")
 	}
 
 	if len(m.ProblemTags) > 20 {
-		return wrap("max 20 problem tags allowed")
+		return errwrap.ClientError("max 20 problem tags allowed")
 	}
 
 	for _, tag := range m.ProblemTags {
 		if len(tag) == 0 {
-			return wrap("problem tag cannot be empty")
+			return errwrap.ClientError("problem tag cannot be empty")
 		}
 		if len(tag) > 50 {
-			return wrap("problem tag too long, max 50 chars")
+			return errwrap.ClientError("problem tag too long, max 50 chars")
 		}
 		// Tags should contain only lowercase letters, digits, and hyphens
 		for _, r := range tag {
 			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
-				return wrap("problem tag must contain only lowercase letters, digits, and hyphens")
+				return errwrap.ClientError("problem tag must contain only lowercase letters, digits, and hyphens")
 			}
 		}
 	}
@@ -71,33 +72,33 @@ type Origin struct {
 // validates sanity of the origin configuration
 func (o *Origin) Validate() error {
 	if len(o.Olympiad) > 10 || !isUpperOrDigits(o.Olympiad) {
-		return wrap("olympiad must be uppercase letters/digits, max 10 chars")
+		return errwrap.ClientError("olympiad must be uppercase letters/digits, max 10 chars")
 	}
 
 	validStages := []string{"school", "municipal", "national", "selection", "international"}
 	if !slices.Contains(validStages, o.OlyStage) {
-		return wrap("invalid olympiad stage")
+		return errwrap.ClientError("invalid olympiad stage")
 	}
 
 	if len(o.Org) > 10 || !isUpperOrDigits(o.Org) {
-		return wrap("org must be uppercase letters/digits, max 10 chars")
+		return errwrap.ClientError("org must be uppercase letters/digits, max 10 chars")
 	}
 
 	for _, note := range o.Notes {
 		if len(note) > 500 {
-			return wrap("note too long, max 500 chars")
+			return errwrap.ClientError("note too long, max 500 chars")
 		}
 	}
 
 	if len(o.Authors) == 0 {
-		return wrap("at least 1 author required")
+		return errwrap.ClientError("at least 1 author required")
 	}
 	if len(o.Authors) > 10 {
-		return wrap("max 10 authors allowed")
+		return errwrap.ClientError("max 10 authors allowed")
 	}
 	for _, author := range o.Authors {
 		if len(author) > 50 {
-			return wrap("author name too long, max 50 chars")
+			return errwrap.ClientError("author name too long, max 50 chars")
 		}
 	}
 
@@ -105,32 +106,32 @@ func (o *Origin) Validate() error {
 	if !strings.Contains(o.Year, "/") {
 		year, err := parseYear(o.Year)
 		if err != nil {
-			return wrap(err.Error())
+			return errwrap.ClientError(err.Error())
 		}
 		if year < 1980 {
-			return wrap("year must be at least 1980")
+			return errwrap.ClientError("year must be at least 1980")
 		}
 	} else {
 		parts := strings.Split(o.Year, "/")
 		if len(parts) != 2 {
-			return wrap("invalid year format, must be yyyy or yyyy/yyyy")
+			return errwrap.ClientError("invalid year format, must be yyyy or yyyy/yyyy")
 		}
 
 		start, err := parseYear(parts[0])
 		if err != nil {
-			return wrap(err.Error())
+			return errwrap.ClientError(err.Error())
 		}
 		end, err := parseYear(parts[1])
 		if err != nil {
-			return wrap(err.Error())
+			return errwrap.ClientError(err.Error())
 		}
 
 		if start < 1980 {
-			return wrap("year must be at least 1980")
+			return errwrap.ClientError("year must be at least 1980")
 		}
 
 		if end != start+1 {
-			return wrap("years must be consecutive")
+			return errwrap.ClientError("years must be consecutive")
 		}
 	}
 
@@ -171,39 +172,39 @@ type Testing struct {
 func (t *Testing) Validate() error {
 	validTypes := []string{"simple", "checker", "interactor"}
 	if !slices.Contains(validTypes, t.TestingT) {
-		return wrap(fmt.Sprintf("invalid testing type - %s", t.TestingT))
+		return errwrap.ClientError(fmt.Sprintf("invalid testing type - %s", t.TestingT))
 	}
 	checker := t.Checker != ""
 	if (t.TestingT == "checker" && !checker) || (t.TestingT != "checker" && checker) {
-		return wrap("checker is required iff testing type is checker")
+		return errwrap.ClientError("checker is required iff testing type is checker")
 	}
 	interactor := t.Interactor != ""
 	if (t.TestingT == "interactor" && !interactor) || (t.TestingT != "interactor" && interactor) {
-		return wrap("interactor is required iff testing type is interactor")
+		return errwrap.ClientError("interactor is required iff testing type is interactor")
 	}
 	if len(t.Tests) == 0 {
-		return wrap("at least 1 test is required")
+		return errwrap.ClientError("at least 1 test is required")
 	}
 	if len(t.Tests) > 999 {
-		return wrap("max 999 tests allowed")
+		return errwrap.ClientError("max 999 tests allowed")
 	}
 	if t.MemLimMiB < 40 {
-		return wrap("memory limit must be at least 40 MiB")
+		return errwrap.ClientError("memory limit must be at least 40 MiB")
 	}
 	if t.MemLimMiB > 2048 {
-		return wrap("memory limit must be at most 2048 MiB")
+		return errwrap.ClientError("memory limit must be at most 2048 MiB")
 	}
 	if t.CpuLimMs < 100 {
-		return wrap("cpu time limit must be at least 100 ms")
+		return errwrap.ClientError("cpu time limit must be at least 100 ms")
 	}
 	if t.CpuLimMs > 8000 {
-		return wrap("cpu time limit must be at most 8000 ms")
+		return errwrap.ClientError("cpu time limit must be at most 8000 ms")
 	}
 	if len(t.Checker) > 1e6 {
-		return wrap("checker must be at most 1 MB")
+		return errwrap.ClientError("checker must be at most 1 MB")
 	}
 	if len(t.Interactor) > 1e6 {
-		return wrap("interactor must be at most 1 MB")
+		return errwrap.ClientError("interactor must be at most 1 MB")
 	}
 	// tests can't weigh more than 500 MB
 	totalTestSize := 0
@@ -211,7 +212,7 @@ func (t *Testing) Validate() error {
 		totalTestSize += len(test.Input) + len(test.Answer)
 	}
 	if totalTestSize > 500*1024*1024 {
-		return wrap("tests must be at most 500 MB")
+		return errwrap.ClientError("tests must be at most 500 MB")
 	}
 	return nil
 }
@@ -224,10 +225,10 @@ type Scoring struct {
 
 func (s *Scoring) validateTestSumT(noOfTests int) error {
 	if len(s.Groups) > 0 {
-		return wrap("test groups not allowed for test-sum scoring")
+		return errwrap.ClientError("test groups not allowed for test-sum scoring")
 	}
 	if s.TotalP != noOfTests {
-		return wrap("total points must equal number of tests for test-sum scoring")
+		return errwrap.ClientError("total points must equal number of tests for test-sum scoring")
 	}
 	return nil
 }
@@ -235,7 +236,7 @@ func (s *Scoring) validateTestSumT(noOfTests int) error {
 func (s *Scoring) validateMinGroupsT(noOfSubtasks int) error {
 	hasGroups := len(s.Groups) > 0
 	if !hasGroups {
-		return wrap("test groups required for min-groups scoring")
+		return errwrap.ClientError("test groups required for min-groups scoring")
 	}
 	if err := s.validateGroupSubtaskLinks(noOfSubtasks); err != nil {
 		return err
@@ -250,12 +251,12 @@ func (s *Scoring) validateGroupPointSum() error {
 	sumPoints := 0
 	for _, group := range s.Groups {
 		if group.Points <= 0 {
-			return wrap("test group points must be positive")
+			return errwrap.ClientError("test group points must be positive")
 		}
 		sumPoints += group.Points
 	}
 	if sumPoints != s.TotalP {
-		return wrap("sum of test group points must equal total points")
+		return errwrap.ClientError("sum of test group points must equal total points")
 	}
 	return nil
 }
@@ -265,19 +266,19 @@ func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 	stLinks := it.Map(slices.Values(s.Groups), tgStLink)
 	count := len(slices.Collect(it.FilterUnique(stLinks)))
 	if count != noOfSubtasks {
-		return wrap("all subtasks must be linked to in testgroups")
+		return errwrap.ClientError("all subtasks must be linked to in testgroups")
 	}
 	if noOfSubtasks == 0 && count == 0 {
 		return nil
 	}
 	if noOfSubtasks != count {
-		return wrap("testgroups must link to existing subtasks")
+		return errwrap.ClientError("testgroups must link to existing subtasks")
 	}
 
 	outOfRange := func(link int) bool { return link < 1 || link > noOfSubtasks }
 	anyOutOfRange := it.Any(it.Map(stLinks, outOfRange))
 	if anyOutOfRange {
-		return wrap("subtask link in testgroups are out of range")
+		return errwrap.ClientError("subtask link in testgroups are out of range")
 	}
 
 	return nil
@@ -285,7 +286,7 @@ func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 
 func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
 	if s.TotalP <= 0 {
-		return wrap("total points must be positive")
+		return errwrap.ClientError("total points must be positive")
 	}
 	if s.ScoringT == "test-sum" {
 		return s.validateTestSumT(noOfTests)
@@ -293,7 +294,7 @@ func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
 	if s.ScoringT == "min-groups" {
 		return s.validateMinGroupsT(noOfSubtasks)
 	}
-	return wrap(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
+	return errwrap.ClientError(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
 }
 
 type Statement struct {
@@ -306,8 +307,7 @@ type Statement struct {
 func (s *Statement) Validate() error {
 	for _, example := range s.Examples {
 		if err := example.Validate(); err != nil {
-			msg := "validate example"
-			return wrap(msg, err)
+			return errwrap.AddTrace(err)
 		}
 	}
 	return nil
@@ -339,17 +339,17 @@ type Example struct {
 
 func (e *Example) Validate() error {
 	if len(e.Input) > 1024 {
-		return wrap("input too long, max 1024 bytes")
+		return errwrap.ClientError("input too long, max 1024 bytes")
 	}
 	if len(e.Output) > 1024 {
-		return wrap("output too long, max 1024 bytes")
+		return errwrap.ClientError("output too long, max 1024 bytes")
 	}
 	if len(e.Input) == 0 || len(e.Output) == 0 {
-		return wrap("input and output must not be empty")
+		return errwrap.ClientError("input and output must not be empty")
 	}
 	for _, note := range e.MdNote {
 		if len(note) > 1000 {
-			return wrap("note too long, max 1000 chars")
+			return errwrap.ClientError("note too long, max 1000 chars")
 		}
 	}
 	return nil

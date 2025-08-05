@@ -1,0 +1,245 @@
+package lio2023
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/external/lio"
+	"github.com/programme-lv/task-zip/taskfs"
+)
+
+func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
+	taskYamlPath := filepath.Join(dirPath, "task.yaml")
+
+	taskYamlContent, err := os.ReadFile(taskYamlPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return taskfs.Task{}, errwrap.ClientError("task.yaml file not found")
+		}
+		return taskfs.Task{}, errwrap.AddTrace(err)
+	}
+
+	taskYaml, err := ParseLio2023Yaml(taskYamlContent)
+	if err != nil {
+		return taskfs.Task{}, errwrap.AddTrace(err)
+	}
+
+	task := taskfs.Task{}
+	// FullName is now i18n[string], so we need to create a map
+	task.FullName = map[string]string{"lv": taskYaml.Title}
+
+	// Set up basic testing configuration
+	task.Testing.TestingT = "simple"                       // default to simple testing
+	task.Testing.CpuLimMs = int(taskYaml.TimeLimit * 1000) // convert seconds to milliseconds and to int
+	task.Testing.MemLimMiB = taskYaml.MemoryLimit          // assuming it's already in MiB
+
+	checkerPath := filepath.Join(dirPath, "riki", "checker.cpp")
+	if _, err := os.Stat(checkerPath); !errors.Is(err, fs.ErrNotExist) {
+		content, err := os.ReadFile(checkerPath)
+		if err != nil {
+			return taskfs.Task{}, errwrap.AddTrace(err)
+		}
+		task.Testing.Checker = string(content)
+		task.Testing.TestingT = "checker"
+	}
+
+	interactorPath := filepath.Join(dirPath, "riki", "interactor.cpp")
+	if _, err := os.Stat(interactorPath); !errors.Is(err, fs.ErrNotExist) {
+		content, err := os.ReadFile(interactorPath)
+		if err != nil {
+			return taskfs.Task{}, errwrap.AddTrace(err)
+		}
+		task.Testing.Interactor = string(content)
+		task.Testing.TestingT = "interactor"
+	}
+
+	solutionsPath := filepath.Join(dirPath, "risin")
+	if _, err := os.Stat(solutionsPath); !errors.Is(err, fs.ErrNotExist) {
+		// loop through all files in risin using filepath.Walk
+		err = filepath.Walk(solutionsPath, func(path string, info fs.FileInfo, err error) error {
+			if err != nil {
+				return errwrap.AddTrace(err)
+			}
+			if info.IsDir() {
+				return nil
+			}
+
+			relativePath, err := filepath.Rel(solutionsPath, path)
+			if err != nil {
+				return errwrap.AddTrace(err)
+			}
+
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return errwrap.AddTrace(err)
+			}
+
+			task.Solutions = append(task.Solutions, taskfs.Solution{
+				Fname:    filepath.Base(relativePath),
+				Content:  string(content), // convert []byte to string
+				Subtasks: []int{},         // empty for now, could be populated based on filename
+			})
+
+			return nil
+		})
+
+		if err != nil {
+			return taskfs.Task{}, errwrap.AddTrace(err)
+		}
+	}
+
+	testZipAbsolutePath := filepath.Join(dirPath, taskYaml.TestArchive)
+	tests, err := lio.ReadLioTestsFromZip(testZipAbsolutePath)
+	if err != nil {
+		// Check if it's a missing file error
+		if errors.Is(err, os.ErrNotExist) {
+			msg := fmt.Sprintf("test archive file not found: %s", taskYaml.TestArchive)
+			return taskfs.Task{}, errwrap.ClientError(msg)
+		}
+		return taskfs.Task{}, errwrap.AddTrace(err)
+	}
+
+	testGroupTestIds := make(map[int][]int)
+	for _, test := range tests {
+		if test.TestGroup == 0 {
+			// Examples go in Statement.Examples
+			task.Statement.Examples = append(task.Statement.Examples, taskfs.Example{
+				Input:  string(test.Input),  // convert []byte to string
+				Output: string(test.Answer), // convert []byte to string
+				MdNote: map[string]string{}, // empty for now
+			})
+		} else {
+			// Tests go in Testing.Tests
+			task.Testing.Tests = append(task.Testing.Tests, taskfs.Test{
+				Input:  string(test.Input),  // convert []byte to string
+				Answer: string(test.Answer), // convert []byte to string
+			})
+			testId := len(task.Testing.Tests)
+
+			if testGroupTestIds[test.TestGroup] == nil {
+				testGroupTestIds[test.TestGroup] = make([]int, 0)
+			}
+			testGroupTestIds[test.TestGroup] = append(testGroupTestIds[test.TestGroup], int(testId))
+		}
+	}
+
+	punktiTxtPath := filepath.Join(dirPath, "punkti.txt")
+	punktiTxtContent, err := os.ReadFile(punktiTxtPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return taskfs.Task{}, errwrap.ClientError("punkti.txt file not found")
+		}
+		return taskfs.Task{}, errwrap.AddTrace(err)
+	}
+	// split by "\n"
+	parts := strings.Split(string(punktiTxtContent), "\n")
+	for _, line := range parts {
+		if line == "" {
+			continue
+		}
+		// split by space
+		parts := strings.Split(line, " ")
+		testInterval := strings.Split(parts[0], "-")
+
+		if len(testInterval) != 2 {
+			msg := fmt.Sprintf("invalid test interval format: %s", line)
+			return taskfs.Task{}, errwrap.ClientError(msg)
+		}
+
+		start, err := strconv.Atoi(testInterval[0])
+		if err != nil {
+			msg := fmt.Sprintf("invalid start number in test interval: %s", testInterval[0])
+			return taskfs.Task{}, errwrap.ClientError(msg)
+		}
+		end, err := strconv.Atoi(testInterval[1])
+		if err != nil {
+			msg := fmt.Sprintf("invalid end number in test interval: %s", testInterval[1])
+			return taskfs.Task{}, errwrap.ClientError(msg)
+		}
+
+		points, err := strconv.Atoi(parts[1])
+		if err != nil {
+			msg := fmt.Sprintf("invalid points value: %s", parts[1])
+			return taskfs.Task{}, errwrap.ClientError(msg)
+		}
+
+		for i := start; i <= end; i++ {
+			if i == 0 {
+				continue // example test group
+			}
+			// TestGroups are now in Scoring.Groups and have different structure
+			task.Scoring.Groups = append(task.Scoring.Groups, taskfs.TestGroup{
+				Points:  points,
+				Range:   [2]int{start, end}, // [from, to] inclusive
+				Public:  false,              // assume private by default
+				Subtask: 0,                  // no subtask mapping for now
+			})
+		}
+	}
+
+	excludePrefixFromArchive := []string{
+		punktiTxtPath,
+		testZipAbsolutePath,
+		solutionsPath,
+		taskYamlPath,
+		checkerPath,
+		interactorPath,
+	}
+
+	// Archive files go in Archive.Files
+	err = filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return errwrap.AddTrace(err)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relativePath, err := filepath.Rel(dirPath, path)
+		if err != nil {
+			return errwrap.AddTrace(err)
+		}
+		relativePath = "./" + relativePath
+		for _, prefix := range excludePrefixFromArchive {
+			prefixAbs, err := filepath.Abs(prefix)
+			if err != nil {
+				return errwrap.AddTrace(err)
+			}
+			pathAbs, err := filepath.Abs(path)
+			if err != nil {
+				return errwrap.AddTrace(err)
+			}
+			if pathAbs == prefixAbs {
+				return nil
+			}
+			if strings.HasPrefix(pathAbs, prefixAbs+string(filepath.Separator)) {
+				return nil
+			}
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return errwrap.AddTrace(err)
+		}
+		// Archive structure changed - it's now Archive.Files
+		task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
+			RelPath: relativePath, // field name changed from RelativePath to RelPath
+			Content: content,
+		})
+		return nil
+	})
+	if err != nil {
+		return taskfs.Task{}, errwrap.AddTrace(err)
+	}
+
+	// Origin structure changed
+	task.Origin.Olympiad = "LIO"
+	task.Origin.OlyStage = "national" // assume national level
+	task.Origin.Year = "2023"         // since this is lio2023
+
+	return task, nil
+}

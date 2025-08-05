@@ -1,0 +1,29 @@
+---
+alwaysApply: true
+---
+
+Errors should almost always be wrapped to add context (implement concise stack trace).
+If the error is not client's fault, use errwrap.ServerError.
+If the error is client's fault, use errwrap.ClientError.
+If adding a message to an error is unlikely to benefit the developer, use errwrap.AddTrace.
+If the error is unexpected and therefore classified as a server error,
+but an err variable is not available, just use ServerError and set the error to nil.
+
+When in doubt, use errwrap.AddTrace.
+
+I believe that distinguishing between server and client errors is not always possible.
+In those cases, either side with server error or use errwrap.AddTrace.
+
+Sometimes if the error is coming from reading a file, if the error is that
+the file does not exist, then it might be a client error and otherwise it could
+be a server error. We need to do extra work to determine the error type.
+
+```go
+	taskYamlContent, err := os.ReadFile(taskYamlPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return taskfs.Task{}, errwrap.ClientError("task.yaml file not found")
+		}
+		return taskfs.Task{}, errwrap.AddTrace(err)
+	}
+```
