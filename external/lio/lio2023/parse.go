@@ -21,7 +21,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
-			return taskfs.Task{}, errwrap.ClientError(msg)
+			return taskfs.Task{}, errwrap.Error(msg)
 		}
 		return taskfs.Task{}, errwrap.AddTrace(err)
 	}
@@ -126,7 +126,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		// Check if it's a missing file error
 		if errors.Is(err, os.ErrNotExist) {
 			msg := fmt.Sprintf("test archive file not found: %s", taskYaml.TestArchive)
-			return taskfs.Task{}, errwrap.ClientError(msg)
+			return taskfs.Task{}, errwrap.Error(msg)
 		}
 		return taskfs.Task{}, errwrap.AddTrace(err)
 	}
@@ -159,7 +159,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	punktiTxtContent, err := os.ReadFile(punktiTxtPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return taskfs.Task{}, errwrap.ClientError("punkti.txt file not found")
+			return taskfs.Task{}, errwrap.Error("punkti.txt file not found")
 		}
 		return taskfs.Task{}, errwrap.AddTrace(err)
 	}
@@ -175,24 +175,24 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 
 		if len(testInterval) != 2 {
 			msg := fmt.Sprintf("invalid test interval format: %s", line)
-			return taskfs.Task{}, errwrap.ClientError(msg)
+			return taskfs.Task{}, errwrap.Error(msg)
 		}
 
 		start, err := strconv.Atoi(testInterval[0])
 		if err != nil {
 			msg := fmt.Sprintf("invalid start number in test interval: %s", testInterval[0])
-			return taskfs.Task{}, errwrap.ClientError(msg)
+			return taskfs.Task{}, errwrap.Error(msg)
 		}
 		end, err := strconv.Atoi(testInterval[1])
 		if err != nil {
 			msg := fmt.Sprintf("invalid end number in test interval: %s", testInterval[1])
-			return taskfs.Task{}, errwrap.ClientError(msg)
+			return taskfs.Task{}, errwrap.Error(msg)
 		}
 
 		points, err := strconv.Atoi(parts[1])
 		if err != nil {
 			msg := fmt.Sprintf("invalid points value: %s", parts[1])
-			return taskfs.Task{}, errwrap.ClientError(msg)
+			return taskfs.Task{}, errwrap.Error(msg)
 		}
 
 		for i := start; i <= end; i++ {

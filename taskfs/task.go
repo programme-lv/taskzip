@@ -5,14 +5,27 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BooleanCat/go-functional/v2/it"
 	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/common/iso639"
 )
 
 // internationalization (language -> text or smth)
 // TODO: consider https://github.com/emvi/iso-639-1
 type i18n[T any] map[string]T
+
+var ErrInvalidIso639LangCode = errwrap.Error("invalid ISO 639 language code")
+
+func (m i18n[T]) ValidateLangs() error {
+	for lang := range m {
+		if _, ok := iso639.Languages[lang]; !ok {
+			return errwrap.AddTrace(ErrInvalidIso639LangCode)
+		}
+	}
+	return nil
+}
 
 type Task struct {
 	ShortID   string // unique identifier; should match .zip filename
@@ -27,16 +40,58 @@ type Task struct {
 	Metadata  Metadata
 }
 
-func (t *Task) Validate() error {
+func (t *Task) Validate() []error {
+	allErrs := []error{}
+
 	if len(t.ShortID) == 0 {
-		return errwrap.ClientError("shortID cannot be empty")
+		allErrs = append(allErrs, errwrap.Error("shortID cannot be empty"))
 	}
 	if len(t.ShortID) > 20 {
-		return errwrap.ClientError("shortID too long, max 20 chars")
+		allErrs = append(allErrs, errwrap.Error("shortID too long, max 20 chars"))
 	}
 	for _, r := range t.ShortID {
 		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
-			return errwrap.ClientError("shortID must contain only lowercase letters and digits")
+			allErrs = append(allErrs, errwrap.Error("shortID must contain only lowercase letters and digits"))
+		}
+	}
+
+	if err := t.Metadata.Validate(); err != nil {
+		allErrs = append(allErrs, errwrap.AddTrace(err))
+	}
+
+	if errs := t.Origin.Validate(); len(errs) > 0 {
+		for _, err := range errs {
+			allErrs = append(allErrs, errwrap.AddTrace(err))
+		}
+	}
+
+	if err := t.Testing.Validate(); err != nil {
+		allErrs = append(allErrs, errwrap.AddTrace(err))
+	}
+
+	if err := t.Statement.Validate(); err != nil {
+		allErrs = append(allErrs, errwrap.AddTrace(err))
+	}
+
+	noOfTests := len(t.Testing.Tests)
+	noOfSubtasks := len(t.Statement.Subtasks)
+	if err := t.Scoring.Validate(noOfTests, noOfSubtasks); err != nil {
+		allErrs = append(allErrs, errwrap.AddTrace(err))
+	}
+
+	return allErrs
+}
+
+func (t *Task) ValidateOld() error {
+	if len(t.ShortID) == 0 {
+		return errwrap.Error("shortID cannot be empty")
+	}
+	if len(t.ShortID) > 20 {
+		return errwrap.Error("shortID too long, max 20 chars")
+	}
+	for _, r := range t.ShortID {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
+			return errwrap.Error("shortID must contain only lowercase letters and digits")
 		}
 	}
 
@@ -44,7 +99,7 @@ func (t *Task) Validate() error {
 		return errwrap.AddTrace(err)
 	}
 
-	if err := t.Origin.Validate(); err != nil {
+	if err := t.Origin.ValidateOld(); err != nil {
 		return errwrap.AddTrace(err)
 	}
 
@@ -72,25 +127,25 @@ type Metadata struct {
 
 // validates sanity of the metadata configuration
 func (m *Metadata) Validate() error {
-	if m.Difficulty < 1 || m.Difficulty > 6 {
-		return errwrap.ClientError("difficulty must be between 1 and 6")
+	if m.Difficulty != 0 && (m.Difficulty < 1 || m.Difficulty > 6) {
+		return errwrap.Error("difficulty must be between 1 and 6")
 	}
 
 	if len(m.ProblemTags) > 20 {
-		return errwrap.ClientError("max 20 problem tags allowed")
+		return errwrap.Error("max 20 problem tags allowed")
 	}
 
 	for _, tag := range m.ProblemTags {
 		if len(tag) == 0 {
-			return errwrap.ClientError("problem tag cannot be empty")
+			return errwrap.Error("problem tag cannot be empty")
 		}
 		if len(tag) > 50 {
-			return errwrap.ClientError("problem tag too long, max 50 chars")
+			return errwrap.Error("problem tag too long, max 50 chars")
 		}
 		// Tags should contain only lowercase letters, digits, and hyphens
 		for _, r := range tag {
 			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
-				return errwrap.ClientError("problem tag must contain only lowercase letters, digits, and hyphens")
+				return errwrap.Error("problem tag must contain only lowercase letters, digits, and hyphens")
 			}
 		}
 	}
@@ -99,44 +154,166 @@ func (m *Metadata) Validate() error {
 }
 
 type Origin struct {
-	Olympiad string       // abbrev of the olympiad name, if any
-	OlyStage string       // school | municipal | national | selection | international
-	Org      string       // abbrev of an organization or institution, if any
+	Olympiad string // abbrev of the olympiad name, if any
+	OlyStage string
+	Org      string       // abbrev of an organization or institution, if any.
 	Notes    i18n[string] // language -> note. full name of olymp, org + details
 	Authors  []string     // first name + last name list
 	Year     string       // yyyy | yyyy/yyyy e.g. 2024/2025.
 }
 
-// validates sanity of the origin configuration
-func (o *Origin) Validate() error {
-	if len(o.Olympiad) > 10 || !isUpperOrDigits(o.Olympiad) {
-		return errwrap.ClientError("olympiad must be uppercase letters/digits, max 10 chars")
+var OlympStages = []string{"school", "municipal", "national", "selection", "regional", "international"}
+var MaxAbbrevLen = 10
+var MaxOrigNoteLen = 200
+var MaxAuthorNameLen = 50
+var MaxNoOfAuthors = 10
+
+var (
+	ErrOlympAbbrevInvalid = errwrap.Error(fmt.Sprintf("olympiad (abbrev) must be uppercase, alphanumeric, max %d chars", MaxAbbrevLen))
+	ErrStageIffOlympiad   = errwrap.Error("olympiad stage must be set if (and only if) olympiad is non-empty")
+	WarnUnknownOlympStage = errwrap.Warning("stage should be one of [" + strings.Join(OlympStages, ", ") + "]")
+	WarnNonTraceableTask  = errwrap.Warning("task origin can't be traced back to olympiad, organization, or author")
+	ErrOrgAbbrevInvalid   = errwrap.Error(fmt.Sprintf("org must be uppercase letters/digits, max %d chars", MaxAbbrevLen))
+	WarnOriginNoteTooLong = errwrap.Warning(fmt.Sprintf("note should be short and therefore at most %d chars", MaxOrigNoteLen))
+	WarnAuthorNameTooLong = errwrap.Warning(fmt.Sprintf("author name should be at most %d chars", MaxAuthorNameLen))
+	WarnTooManyAuthors    = errwrap.Warning(fmt.Sprintf("max %d authors allowed", MaxNoOfAuthors))
+)
+
+func (o *Origin) Validate() []error {
+	errs := []error{}
+
+	if len(o.Olympiad) > MaxAbbrevLen || !isUpperOrDigits(o.Olympiad) {
+		errs = append(errs, errwrap.AddTrace(ErrOlympAbbrevInvalid))
+	}
+	if (o.Olympiad != "") != (o.OlyStage != "") {
+		errs = append(errs, errwrap.AddTrace(ErrStageIffOlympiad))
+	}
+	if o.OlyStage != "" {
+		if !slices.Contains(OlympStages, o.OlyStage) {
+			errs = append(errs, errwrap.AddTrace(WarnUnknownOlympStage))
+		}
+	}
+	if !(len(o.Olympiad) > 0 || len(o.Org) > 0 || len(o.Authors) > 0) {
+		errs = append(errs, errwrap.AddTrace(WarnNonTraceableTask))
+	}
+	if len(o.Org) > MaxAbbrevLen || !isUpperOrDigits(o.Org) {
+		errs = append(errs, errwrap.AddTrace(ErrOrgAbbrevInvalid))
+	}
+	for _, note := range o.Notes {
+		if len(note) > MaxOrigNoteLen {
+			errs = append(errs, errwrap.AddTrace(WarnOriginNoteTooLong))
+			break
+		}
+	}
+	for _, author := range o.Authors {
+		if len(author) > MaxAuthorNameLen {
+			errs = append(errs, errwrap.AddTrace(WarnAuthorNameTooLong))
+			break
+		}
+	}
+	if len(o.Authors) > MaxNoOfAuthors {
+		errs = append(errs, errwrap.AddTrace(WarnTooManyAuthors))
+	}
+	if err := o.Notes.ValidateLangs(); err != nil {
+		errs = append(errs, errwrap.AddTrace(err))
+	}
+	if err := ValidateOriginYear(o.Year); err != nil {
+		errs = append(errs, errwrap.AddTrace(err))
 	}
 
-	validStages := []string{"school", "municipal", "national", "selection", "international"}
-	if !slices.Contains(validStages, o.OlyStage) {
-		return errwrap.ClientError("invalid olympiad stage")
+	return errs
+}
+
+const MinYear = 1980
+
+var (
+	ErrInvalidYearFormat   = errwrap.Error("invalid year format, must be yyyy or yyyy/yyyy")
+	ErrYearTooEarly        = errwrap.Error(fmt.Sprintf("year must be at least %d", MinYear))
+	ErrYearsNotConsecutive = errwrap.Error("origin years must be consecutive")
+	WarnYearInTheFuture    = errwrap.Warning("origin year is in the future")
+)
+
+func ValidateOriginYear(year string) error {
+	if !strings.Contains(year, "/") {
+		if len(year) != 4 {
+			return ErrInvalidYearFormat
+		}
+		yearInt, err := parseYear(year)
+		if err != nil {
+			return err
+		}
+		if yearInt < MinYear {
+			return ErrYearTooEarly
+		}
+		if yearInt > time.Now().Year() {
+			return WarnYearInTheFuture
+		}
+		return nil
+	} else {
+		parts := strings.Split(year, "/")
+		if len(parts) != 2 {
+			return ErrInvalidYearFormat
+		}
+		if len(parts[0]) != 4 || len(parts[1]) != 4 {
+			return ErrInvalidYearFormat
+		}
+		first, err := parseYear(parts[0])
+		if err != nil {
+			return err
+		}
+		second, err := parseYear(parts[1])
+		if err != nil {
+			return err
+		}
+		if first != second-1 {
+			return ErrYearsNotConsecutive
+		}
+		if first < MinYear {
+			return ErrYearTooEarly
+		}
+		if first > time.Now().Year() {
+			return WarnYearInTheFuture
+		}
+	}
+	return nil
+}
+
+// validates sanity of the origin configuration
+func (o *Origin) ValidateOld() error {
+	if len(o.Olympiad) > 10 || !isUpperOrDigits(o.Olympiad) {
+		return errwrap.Error("olympiad must be uppercase letters/digits, max 10 chars")
+	}
+
+	if o.Olympiad == "" {
+		if o.OlyStage != "" {
+			return errwrap.Error("olympiad stage must be empty if olympiad is empty")
+		}
+	} else {
+		validStages := []string{"school", "municipal", "national", "selection", "regional", "international"}
+		if !slices.Contains(validStages, o.OlyStage) {
+			return errwrap.Error("invalid olympiad stage")
+		}
 	}
 
 	if len(o.Org) > 10 || !isUpperOrDigits(o.Org) {
-		return errwrap.ClientError("org must be uppercase letters/digits, max 10 chars")
+		return errwrap.Error("org must be uppercase letters/digits, max 10 chars")
 	}
 
 	for _, note := range o.Notes {
 		if len(note) > 500 {
-			return errwrap.ClientError("note too long, max 500 chars")
+			return errwrap.Error("note too long, max 500 chars")
 		}
 	}
 
 	if len(o.Authors) == 0 {
-		return errwrap.ClientError("at least 1 author required")
+		return errwrap.Error("at least 1 author required")
 	}
 	if len(o.Authors) > 10 {
-		return errwrap.ClientError("max 10 authors allowed")
+		return errwrap.Error("max 10 authors allowed")
 	}
 	for _, author := range o.Authors {
 		if len(author) > 50 {
-			return errwrap.ClientError("author name too long, max 50 chars")
+			return errwrap.Error("author name too long, max 50 chars")
 		}
 	}
 
@@ -144,32 +321,32 @@ func (o *Origin) Validate() error {
 	if !strings.Contains(o.Year, "/") {
 		year, err := parseYear(o.Year)
 		if err != nil {
-			return errwrap.ClientError(err.Error())
+			return errwrap.Error(err.Error())
 		}
 		if year < 1980 {
-			return errwrap.ClientError("year must be at least 1980")
+			return errwrap.Error("year must be at least 1980")
 		}
 	} else {
 		parts := strings.Split(o.Year, "/")
 		if len(parts) != 2 {
-			return errwrap.ClientError("invalid year format, must be yyyy or yyyy/yyyy")
+			return errwrap.Error("invalid year format, must be yyyy or yyyy/yyyy")
 		}
 
 		start, err := parseYear(parts[0])
 		if err != nil {
-			return errwrap.ClientError(err.Error())
+			return errwrap.Error(err.Error())
 		}
 		end, err := parseYear(parts[1])
 		if err != nil {
-			return errwrap.ClientError(err.Error())
+			return errwrap.Error(err.Error())
 		}
 
 		if start < 1980 {
-			return errwrap.ClientError("year must be at least 1980")
+			return errwrap.Error("year must be at least 1980")
 		}
 
 		if end != start+1 {
-			return errwrap.ClientError("years must be consecutive")
+			return errwrap.Error("years must be consecutive")
 		}
 	}
 
@@ -210,39 +387,39 @@ type Testing struct {
 func (t *Testing) Validate() error {
 	validTypes := []string{"simple", "checker", "interactor"}
 	if !slices.Contains(validTypes, t.TestingT) {
-		return errwrap.ClientError(fmt.Sprintf("invalid testing type - %s", t.TestingT))
+		return errwrap.Error(fmt.Sprintf("invalid testing type - %s", t.TestingT))
 	}
 	checker := t.Checker != ""
 	if (t.TestingT == "checker" && !checker) || (t.TestingT != "checker" && checker) {
-		return errwrap.ClientError("checker is required iff testing type is checker")
+		return errwrap.Error("checker is required iff testing type is checker")
 	}
 	interactor := t.Interactor != ""
 	if (t.TestingT == "interactor" && !interactor) || (t.TestingT != "interactor" && interactor) {
-		return errwrap.ClientError("interactor is required iff testing type is interactor")
+		return errwrap.Error("interactor is required iff testing type is interactor")
 	}
 	if len(t.Tests) == 0 {
-		return errwrap.ClientError("at least 1 test is required")
+		return errwrap.Error("at least 1 test is required")
 	}
 	if len(t.Tests) > 999 {
-		return errwrap.ClientError("max 999 tests allowed")
+		return errwrap.Error("max 999 tests allowed")
 	}
 	if t.MemLimMiB < 40 {
-		return errwrap.ClientError("memory limit must be at least 40 MiB")
+		return errwrap.Error("memory limit must be at least 40 MiB")
 	}
 	if t.MemLimMiB > 2048 {
-		return errwrap.ClientError("memory limit must be at most 2048 MiB")
+		return errwrap.Error("memory limit must be at most 2048 MiB")
 	}
 	if t.CpuLimMs < 100 {
-		return errwrap.ClientError("cpu time limit must be at least 100 ms")
+		return errwrap.Error("cpu time limit must be at least 100 ms")
 	}
 	if t.CpuLimMs > 8000 {
-		return errwrap.ClientError("cpu time limit must be at most 8000 ms")
+		return errwrap.Error("cpu time limit must be at most 8000 ms")
 	}
 	if len(t.Checker) > 1e6 {
-		return errwrap.ClientError("checker must be at most 1 MB")
+		return errwrap.Error("checker must be at most 1 MB")
 	}
 	if len(t.Interactor) > 1e6 {
-		return errwrap.ClientError("interactor must be at most 1 MB")
+		return errwrap.Error("interactor must be at most 1 MB")
 	}
 	// tests can't weigh more than 500 MB
 	totalTestSize := 0
@@ -250,7 +427,7 @@ func (t *Testing) Validate() error {
 		totalTestSize += len(test.Input) + len(test.Answer)
 	}
 	if totalTestSize > 500*1024*1024 {
-		return errwrap.ClientError("tests must be at most 500 MB")
+		return errwrap.Error("tests must be at most 500 MB")
 	}
 	return nil
 }
@@ -263,10 +440,10 @@ type Scoring struct {
 
 func (s *Scoring) validateTestSumT(noOfTests int) error {
 	if len(s.Groups) > 0 {
-		return errwrap.ClientError("test groups not allowed for test-sum scoring")
+		return errwrap.Error("test groups not allowed for test-sum scoring")
 	}
 	if s.TotalP != noOfTests {
-		return errwrap.ClientError("total points must equal number of tests for test-sum scoring")
+		return errwrap.Error("total points must equal number of tests for test-sum scoring")
 	}
 	return nil
 }
@@ -274,7 +451,7 @@ func (s *Scoring) validateTestSumT(noOfTests int) error {
 func (s *Scoring) validateMinGroupsT(noOfSubtasks int) error {
 	hasGroups := len(s.Groups) > 0
 	if !hasGroups {
-		return errwrap.ClientError("test groups required for min-groups scoring")
+		return errwrap.Error("test groups required for min-groups scoring")
 	}
 	if err := s.validateGroupSubtaskLinks(noOfSubtasks); err != nil {
 		return err
@@ -289,12 +466,12 @@ func (s *Scoring) validateGroupPointSum() error {
 	sumPoints := 0
 	for _, group := range s.Groups {
 		if group.Points <= 0 {
-			return errwrap.ClientError("test group points must be positive")
+			return errwrap.Error("test group points must be positive")
 		}
 		sumPoints += group.Points
 	}
 	if sumPoints != s.TotalP {
-		return errwrap.ClientError("sum of test group points must equal total points")
+		return errwrap.Error("sum of test group points must equal total points")
 	}
 	return nil
 }
@@ -304,19 +481,19 @@ func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 	stLinks := it.Map(slices.Values(s.Groups), tgStLink)
 	count := len(slices.Collect(it.FilterUnique(stLinks)))
 	if count != noOfSubtasks {
-		return errwrap.ClientError("all subtasks must be linked to in testgroups")
+		return errwrap.Error("all subtasks must be linked to in testgroups")
 	}
 	if noOfSubtasks == 0 && count == 0 {
 		return nil
 	}
 	if noOfSubtasks != count {
-		return errwrap.ClientError("testgroups must link to existing subtasks")
+		return errwrap.Error("testgroups must link to existing subtasks")
 	}
 
 	outOfRange := func(link int) bool { return link < 1 || link > noOfSubtasks }
 	anyOutOfRange := it.Any(it.Map(stLinks, outOfRange))
 	if anyOutOfRange {
-		return errwrap.ClientError("subtask link in testgroups are out of range")
+		return errwrap.Error("subtask link in testgroups are out of range")
 	}
 
 	return nil
@@ -324,7 +501,7 @@ func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 
 func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
 	if s.TotalP <= 0 {
-		return errwrap.ClientError("total points must be positive")
+		return errwrap.Error("total points must be positive")
 	}
 	if s.ScoringT == "test-sum" {
 		return s.validateTestSumT(noOfTests)
@@ -332,7 +509,7 @@ func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
 	if s.ScoringT == "min-groups" {
 		return s.validateMinGroupsT(noOfSubtasks)
 	}
-	return errwrap.ClientError(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
+	return errwrap.Error(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
 }
 
 type Statement struct {
@@ -377,17 +554,17 @@ type Example struct {
 
 func (e *Example) Validate() error {
 	if len(e.Input) > 1024 {
-		return errwrap.ClientError("input too long, max 1024 bytes")
+		return errwrap.Error("input too long, max 1024 bytes")
 	}
 	if len(e.Output) > 1024 {
-		return errwrap.ClientError("output too long, max 1024 bytes")
+		return errwrap.Error("output too long, max 1024 bytes")
 	}
 	if len(e.Input) == 0 || len(e.Output) == 0 {
-		return errwrap.ClientError("input and output must not be empty")
+		return errwrap.Error("input and output must not be empty")
 	}
 	for _, note := range e.MdNote {
 		if len(note) > 1000 {
-			return errwrap.ClientError("note too long, max 1000 chars")
+			return errwrap.Error("note too long, max 1000 chars")
 		}
 	}
 	return nil
@@ -457,4 +634,16 @@ func (t Archive) GetOgStatementPdfs() []OriginalPdf {
 		}
 	}
 	return pdfs
+}
+
+func (t Archive) GetTestlibValidator() string {
+	prefix := "reserved/validator.cpp"
+	ext := ".cpp"
+	for _, file := range t.Files {
+		if strings.HasSuffix(file.RelPath, ext) &&
+			strings.HasPrefix(file.RelPath, prefix) {
+			return string(file.Content)
+		}
+	}
+	return ""
 }
