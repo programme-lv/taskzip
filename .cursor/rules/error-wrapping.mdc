@@ -18,11 +18,13 @@ Sometimes if the error is coming from reading a file, if the error is that
 the file does not exist, then it might be a client error and otherwise it could
 be a server error. We need to do extra work to determine the error type.
 
+I believe this to be the perfect example:
 ```go
 	taskYamlContent, err := os.ReadFile(taskYamlPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return taskfs.Task{}, errwrap.ClientError("task.yaml file not found")
+			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
+			return taskfs.Task{}, errwrap.ClientError(msg)
 		}
 		return taskfs.Task{}, errwrap.AddTrace(err)
 	}

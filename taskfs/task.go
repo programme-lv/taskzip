@@ -27,6 +27,44 @@ type Task struct {
 	Metadata  Metadata
 }
 
+func (t *Task) Validate() error {
+	if len(t.ShortID) == 0 {
+		return errwrap.ClientError("shortID cannot be empty")
+	}
+	if len(t.ShortID) > 20 {
+		return errwrap.ClientError("shortID too long, max 20 chars")
+	}
+	for _, r := range t.ShortID {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
+			return errwrap.ClientError("shortID must contain only lowercase letters and digits")
+		}
+	}
+
+	if err := t.Metadata.Validate(); err != nil {
+		return errwrap.AddTrace(err)
+	}
+
+	if err := t.Origin.Validate(); err != nil {
+		return errwrap.AddTrace(err)
+	}
+
+	if err := t.Testing.Validate(); err != nil {
+		return errwrap.AddTrace(err)
+	}
+
+	if err := t.Statement.Validate(); err != nil {
+		return errwrap.AddTrace(err)
+	}
+
+	noOfTests := len(t.Testing.Tests)
+	noOfSubtasks := len(t.Statement.Subtasks)
+	if err := t.Scoring.Validate(noOfTests, noOfSubtasks); err != nil {
+		return errwrap.AddTrace(err)
+	}
+
+	return nil
+}
+
 type Metadata struct {
 	ProblemTags []string
 	Difficulty  int // in programme.lv, difficulty ranges from 1 to 6

@@ -69,7 +69,9 @@ func NewTaskWriter(
 		return TaskWriter{}, errwrap.ServerError(msg, nil)
 	}
 
-	// TODO: validate task
+	if err := taskToWrite.Validate(); err != nil {
+		return TaskWriter{}, errwrap.AddTrace(err)
+	}
 
 	return TaskWriter{
 		path: taskDirAbsPath,

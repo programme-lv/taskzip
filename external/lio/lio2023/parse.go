@@ -20,7 +20,8 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	taskYamlContent, err := os.ReadFile(taskYamlPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return taskfs.Task{}, errwrap.ClientError("task.yaml file not found")
+			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
+			return taskfs.Task{}, errwrap.ClientError(msg)
 		}
 		return taskfs.Task{}, errwrap.AddTrace(err)
 	}
@@ -33,23 +34,41 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	task := taskfs.Task{}
 	// FullName is now i18n[string], so we need to create a map
 	task.FullName = map[string]string{"lv": taskYaml.Title}
+	task.ShortID = taskYaml.Name
+
+	// Set up required metadata with defaults
+	task.Metadata.Difficulty = 3 // default difficulty
+	task.Metadata.ProblemTags = []string{"lio2023"}
+
+	// Set up required origin with defaults
+	task.Origin.Olympiad = "LIO"
+	task.Origin.OlyStage = "national"
+	task.Origin.Org = "LV"
+	task.Origin.Notes = map[string]string{"lv": "LIO 2023 task"}
+	task.Origin.Authors = []string{"LIO 2023"}
+	task.Origin.Year = "2023"
+
+	// Set up subtasks based on subtask_points (skip first 0 entry)
+	for i, points := range taskYaml.SubtaskPoints {
+		if i == 0 || points == 0 {
+			continue // skip examples or 0-point subtasks
+		}
+		task.Statement.Subtasks = append(task.Statement.Subtasks, taskfs.Subtask{
+			Desc:     map[string]string{"lv": fmt.Sprintf("Subtask %d", i)},
+			Points:   points,
+			VisInput: false,
+		})
+	}
 
 	// Set up basic testing configuration
 	task.Testing.TestingT = "simple"                       // default to simple testing
 	task.Testing.CpuLimMs = int(taskYaml.TimeLimit * 1000) // convert seconds to milliseconds and to int
 	task.Testing.MemLimMiB = taskYaml.MemoryLimit          // assuming it's already in MiB
 
-	checkerPath := filepath.Join(dirPath, "riki", "checker.cpp")
-	if _, err := os.Stat(checkerPath); !errors.Is(err, fs.ErrNotExist) {
-		content, err := os.ReadFile(checkerPath)
-		if err != nil {
-			return taskfs.Task{}, errwrap.AddTrace(err)
-		}
-		task.Testing.Checker = string(content)
-		task.Testing.TestingT = "checker"
-	}
-
+	// Check for interactor first, then checker (interactor takes precedence)
 	interactorPath := filepath.Join(dirPath, "riki", "interactor.cpp")
+	checkerPath := filepath.Join(dirPath, "riki", "checker.cpp")
+
 	if _, err := os.Stat(interactorPath); !errors.Is(err, fs.ErrNotExist) {
 		content, err := os.ReadFile(interactorPath)
 		if err != nil {
@@ -57,6 +76,13 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		}
 		task.Testing.Interactor = string(content)
 		task.Testing.TestingT = "interactor"
+	} else if _, err := os.Stat(checkerPath); !errors.Is(err, fs.ErrNotExist) {
+		content, err := os.ReadFile(checkerPath)
+		if err != nil {
+			return taskfs.Task{}, errwrap.AddTrace(err)
+		}
+		task.Testing.Checker = string(content)
+		task.Testing.TestingT = "checker"
 	}
 
 	solutionsPath := filepath.Join(dirPath, "risin")
@@ -173,15 +199,30 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 			if i == 0 {
 				continue // example test group
 			}
+			// Map test groups to subtasks based on a simple distribution
+			// For LIO tasks, typically test groups map to subtasks sequentially
+			subtaskNum := ((len(task.Scoring.Groups) % len(task.Statement.Subtasks)) + 1)
+			if len(task.Statement.Subtasks) == 0 {
+				subtaskNum = 1 // fallback
+			}
+
 			// TestGroups are now in Scoring.Groups and have different structure
 			task.Scoring.Groups = append(task.Scoring.Groups, taskfs.TestGroup{
 				Points:  points,
 				Range:   [2]int{start, end}, // [from, to] inclusive
 				Public:  false,              // assume private by default
-				Subtask: 0,                  // no subtask mapping for now
+				Subtask: subtaskNum,
 			})
 		}
 	}
+
+	// Set up scoring configuration
+	task.Scoring.ScoringT = "min-groups"
+	totalPoints := 0
+	for _, group := range task.Scoring.Groups {
+		totalPoints += group.Points
+	}
+	task.Scoring.TotalP = totalPoints
 
 	excludePrefixFromArchive := []string{
 		punktiTxtPath,
