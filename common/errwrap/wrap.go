@@ -43,8 +43,8 @@ func Warning(msg string) error {
 	_, file, line, _ := runtime.Caller(1)
 	dir := filepath.Base(filepath.Dir(file))
 	file = filepath.Base(file)
-	err := WarningType{msg: msg}
-	return fmt.Errorf("[%s/%s:%d] %w", dir, file, line, err)
+	err := warning{msg: msg, dir: dir, file: file, line: line}
+	return err
 }
 
 // AddTrace wraps an error with the file and line number of the caller
@@ -71,14 +71,48 @@ func (e ClientErrorType) Error() string {
 	return e.msg
 }
 
-type WarningType struct {
-	msg string
+type warning struct {
+	dir  string
+	file string
+	line int
+	msg  string
 }
 
-func (e WarningType) Error() string {
-	return e.msg
+func (e warning) Error() string {
+	return fmt.Sprintf("[%s/%s:%d] %s", e.dir, e.file, e.line, e.msg)
 }
 
+func GetAllLeafErrors(err error) []error {
+	leafErrors := []error{}
+	if uw, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range uw.Unwrap() {
+			leafErrors = append(leafErrors, GetAllLeafErrors(e)...)
+		}
+	} else if uw, ok := err.(interface{ Unwrap() error }); ok {
+		leafErrors = append(leafErrors, GetAllLeafErrors(uw.Unwrap())...)
+	} else {
+		leafErrors = append(leafErrors, err)
+	}
+	return leafErrors
+}
+
+// IsCritical returns true if there is an error that is not a warning.
 func IsCritical(err error) bool {
-	return err != nil && !errors.Is(err, WarningType{})
+	for _, e := range GetAllLeafErrors(err) {
+		if !errors.As(e, &warning{}) {
+			return true
+		}
+	}
+	return false
+}
+
+func GetAllWarnings(err error) []warning {
+	warnings := []warning{}
+	for _, e := range GetAllLeafErrors(err) {
+		w := warning{}
+		if errors.As(e, &w) {
+			warnings = append(warnings, w)
+		}
+	}
+	return warnings
 }

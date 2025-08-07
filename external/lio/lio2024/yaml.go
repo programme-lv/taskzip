@@ -26,19 +26,19 @@ type ParsedLio2024YamlTestGroup struct {
 	Comment *string
 }
 
-type lio2024RawYaml struct {
-	TimeLimit         float64                   `yaml:"time_limit"`
-	MemoryLimit       int                       `yaml:"memory_limit"`
-	ShortCode         string                    `yaml:"name"`
-	TaskName          string                    `yaml:"title"`
-	TestsZipRelPath   string                    `yaml:"tests_archive"`
-	CheckerRelPath    *string                   `yaml:"checker"`
-	InteractorRelPath *string                   `yaml:"interactor"`
-	SubtaskPoitns     []int                     `yaml:"subtask_points"`
-	TestGroups        []lio2024RawYamlTestGroup `yaml:"tests_groups"`
+type rawYaml struct {
+	TimeLimit         float64  `yaml:"time_limit"`
+	MemoryLimit       int      `yaml:"memory_limit"`
+	ShortCode         string   `yaml:"name"`
+	TaskName          string   `yaml:"title"`
+	TestsZipRelPath   string   `yaml:"tests_archive"`
+	CheckerRelPath    *string  `yaml:"checker"`
+	InteractorRelPath *string  `yaml:"interactor"`
+	SubtaskPoitns     []int    `yaml:"subtask_points"`
+	TestGroups        []yamlTg `yaml:"tests_groups"`
 }
 
-type lio2024RawYamlTestGroup struct {
+type yamlTg struct {
 	Groups  interface{} `yaml:"groups"`
 	Points  int         `yaml:"points"`
 	Public  interface{} `yaml:"public"`
@@ -47,7 +47,7 @@ type lio2024RawYamlTestGroup struct {
 }
 
 func ParseLio2024Yaml(content []byte) (res ParsedLio2024Yaml, err error) {
-	rawYaml := lio2024RawYaml{}
+	rawYaml := rawYaml{}
 
 	err = yaml.Unmarshal(content, &rawYaml)
 	if err != nil {

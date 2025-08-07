@@ -1,6 +1,7 @@
 package taskfs
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -14,11 +15,11 @@ import (
 
 // internationalization (language -> text or smth)
 // TODO: consider https://github.com/emvi/iso-639-1
-type i18n[T any] map[string]T
+type I18N[T any] map[string]T
 
 var ErrInvalidIso639LangCode = errwrap.Error("invalid ISO 639 language code")
 
-func (m i18n[T]) ValidateLangs() error {
+func (m I18N[T]) ValidateLangs() error {
 	for lang := range m {
 		if _, ok := iso639.Languages[lang]; !ok {
 			return errwrap.AddTrace(ErrInvalidIso639LangCode)
@@ -29,7 +30,7 @@ func (m i18n[T]) ValidateLangs() error {
 
 type Task struct {
 	ShortID   string // unique identifier; should match .zip filename
-	FullName  i18n[string]
+	FullName  I18N[string]
 	ReadMe    string // readme md. all kinds of notes for maintainers.
 	Statement Statement
 	Origin    Origin
@@ -40,46 +41,50 @@ type Task struct {
 	Metadata  Metadata
 }
 
-func (t *Task) Validate() []error {
-	allErrs := []error{}
+const MaxShortIDLen = 20
 
+var (
+	ErrShortIDEmpty   = errwrap.Error("shortID cannot be empty")
+	ErrShortIDTooLong = errwrap.Error(fmt.Sprintf("shortID too long, max %d chars", MaxShortIDLen))
+	ErrShortIDInvalid = errwrap.Error("shortID must contain only lowercase letters and digits")
+)
+
+func (t *Task) Validate() (err error) {
 	if len(t.ShortID) == 0 {
-		allErrs = append(allErrs, errwrap.Error("shortID cannot be empty"))
+		err = errors.Join(err, errwrap.AddTrace(ErrShortIDEmpty))
 	}
-	if len(t.ShortID) > 20 {
-		allErrs = append(allErrs, errwrap.Error("shortID too long, max 20 chars"))
+	if len(t.ShortID) > MaxShortIDLen {
+		err = errors.Join(err, errwrap.AddTrace(ErrShortIDTooLong))
 	}
 	for _, r := range t.ShortID {
 		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
-			allErrs = append(allErrs, errwrap.Error("shortID must contain only lowercase letters and digits"))
+			err = errors.Join(err, errwrap.AddTrace(ErrShortIDInvalid))
 		}
 	}
 
-	if err := t.Metadata.Validate(); err != nil {
-		allErrs = append(allErrs, errwrap.AddTrace(err))
+	if validateErr := t.Metadata.Validate(); validateErr != nil {
+		err = errors.Join(err, errwrap.AddTrace(validateErr))
 	}
 
-	if errs := t.Origin.Validate(); len(errs) > 0 {
-		for _, err := range errs {
-			allErrs = append(allErrs, errwrap.AddTrace(err))
-		}
+	if validateErr := t.Origin.Validate(); validateErr != nil {
+		err = errors.Join(err, errwrap.AddTrace(validateErr))
 	}
 
-	if err := t.Testing.Validate(); err != nil {
-		allErrs = append(allErrs, errwrap.AddTrace(err))
+	if validateErr := t.Testing.Validate(); validateErr != nil {
+		err = errors.Join(err, errwrap.AddTrace(validateErr))
 	}
 
-	if err := t.Statement.Validate(); err != nil {
-		allErrs = append(allErrs, errwrap.AddTrace(err))
+	if validateErr := t.Statement.Validate(); validateErr != nil {
+		err = errors.Join(err, errwrap.AddTrace(validateErr))
 	}
 
 	noOfTests := len(t.Testing.Tests)
 	noOfSubtasks := len(t.Statement.Subtasks)
-	if err := t.Scoring.Validate(noOfTests, noOfSubtasks); err != nil {
-		allErrs = append(allErrs, errwrap.AddTrace(err))
+	if validateErr := t.Scoring.Validate(noOfTests, noOfSubtasks); validateErr != nil {
+		err = errors.Join(err, errwrap.AddTrace(validateErr))
 	}
 
-	return allErrs
+	return err
 }
 
 func (t *Task) ValidateOld() error {
@@ -157,7 +162,7 @@ type Origin struct {
 	Olympiad string // abbrev of the olympiad name, if any
 	OlyStage string
 	Org      string       // abbrev of an organization or institution, if any.
-	Notes    i18n[string] // language -> note. full name of olymp, org + details
+	Notes    I18N[string] // language -> note. full name of olymp, org + details
 	Authors  []string     // first name + last name list
 	Year     string       // yyyy | yyyy/yyyy e.g. 2024/2025.
 }
@@ -179,49 +184,47 @@ var (
 	WarnTooManyAuthors    = errwrap.Warning(fmt.Sprintf("max %d authors allowed", MaxNoOfAuthors))
 )
 
-func (o *Origin) Validate() []error {
-	errs := []error{}
-
+func (o *Origin) Validate() (err error) {
 	if len(o.Olympiad) > MaxAbbrevLen || !isUpperOrDigits(o.Olympiad) {
-		errs = append(errs, errwrap.AddTrace(ErrOlympAbbrevInvalid))
+		err = errors.Join(err, errwrap.AddTrace(ErrOlympAbbrevInvalid))
 	}
 	if (o.Olympiad != "") != (o.OlyStage != "") {
-		errs = append(errs, errwrap.AddTrace(ErrStageIffOlympiad))
+		err = errors.Join(err, errwrap.AddTrace(ErrStageIffOlympiad))
 	}
 	if o.OlyStage != "" {
 		if !slices.Contains(OlympStages, o.OlyStage) {
-			errs = append(errs, errwrap.AddTrace(WarnUnknownOlympStage))
+			err = errors.Join(err, errwrap.AddTrace(WarnUnknownOlympStage))
 		}
 	}
 	if !(len(o.Olympiad) > 0 || len(o.Org) > 0 || len(o.Authors) > 0) {
-		errs = append(errs, errwrap.AddTrace(WarnNonTraceableTask))
+		err = errors.Join(err, errwrap.AddTrace(WarnNonTraceableTask))
 	}
 	if len(o.Org) > MaxAbbrevLen || !isUpperOrDigits(o.Org) {
-		errs = append(errs, errwrap.AddTrace(ErrOrgAbbrevInvalid))
+		err = errors.Join(err, errwrap.AddTrace(ErrOrgAbbrevInvalid))
 	}
 	for _, note := range o.Notes {
 		if len(note) > MaxOrigNoteLen {
-			errs = append(errs, errwrap.AddTrace(WarnOriginNoteTooLong))
+			err = errors.Join(err, errwrap.AddTrace(WarnOriginNoteTooLong))
 			break
 		}
 	}
 	for _, author := range o.Authors {
 		if len(author) > MaxAuthorNameLen {
-			errs = append(errs, errwrap.AddTrace(WarnAuthorNameTooLong))
+			err = errors.Join(err, errwrap.AddTrace(WarnAuthorNameTooLong))
 			break
 		}
 	}
 	if len(o.Authors) > MaxNoOfAuthors {
-		errs = append(errs, errwrap.AddTrace(WarnTooManyAuthors))
+		err = errors.Join(err, errwrap.AddTrace(WarnTooManyAuthors))
 	}
 	if err := o.Notes.ValidateLangs(); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		err = errors.Join(err, errwrap.AddTrace(err))
 	}
 	if err := ValidateOriginYear(o.Year); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		err = errors.Join(err, errwrap.AddTrace(err))
 	}
 
-	return errs
+	return err
 }
 
 const MinYear = 1980
@@ -513,7 +516,7 @@ func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
 }
 
 type Statement struct {
-	Stories  i18n[StoryMd]
+	Stories  I18N[StoryMd]
 	Subtasks []Subtask
 	Examples []Example
 	Images   []Image
@@ -529,7 +532,7 @@ func (s *Statement) Validate() error {
 }
 
 type Subtask struct {
-	Desc     i18n[string] // description
+	Desc     I18N[string] // description
 	Points   int
 	VisInput bool // compatibility with latvian informatics olympiad (LIO)
 }
@@ -549,7 +552,7 @@ type Test struct {
 type Example struct {
 	Input  string
 	Output string
-	MdNote i18n[string]
+	MdNote I18N[string]
 }
 
 func (e *Example) Validate() error {
@@ -581,8 +584,8 @@ type StoryMd struct {
 	Output  string
 	Notes   string // usually has explanations of examples
 	Scoring string // e.g. tasks with partial scoring
-	Example string // maybe grader usage examples...
 	Talk    string // aka communication (interactive tasks)
+	Example string // maybe grader usage examples...
 }
 
 type Solution struct {

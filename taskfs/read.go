@@ -369,12 +369,12 @@ func (dir TaskDirReader) Solutions() ([]Solution, error) {
 	return solutions, nil
 }
 
-func (dir TaskDirReader) Stories() (i18n[StoryMd], error) {
-	stories := make(i18n[StoryMd])
+func (dir TaskDirReader) Stories() (I18N[StoryMd], error) {
+	stories := make(I18N[StoryMd])
 	files, err := dir.ListDir("statement")
 	if err != nil {
 		msg := "list statement dir"
-		return i18n[StoryMd]{}, errwrap.Unexpected(msg, err)
+		return I18N[StoryMd]{}, errwrap.Unexpected(msg, err)
 	}
 	mdFiles := fn.Filter(files, func(file string) bool {
 		return strings.HasSuffix(file, ".md")
@@ -383,13 +383,13 @@ func (dir TaskDirReader) Stories() (i18n[StoryMd], error) {
 		content, err := dir.ReadFile(filepath.Join("statement", file))
 		if err != nil {
 			msg := fmt.Sprintf("read story %s", file)
-			return i18n[StoryMd]{}, errwrap.Unexpected(msg, err)
+			return I18N[StoryMd]{}, errwrap.Unexpected(msg, err)
 		}
 		lang := strings.TrimSuffix(file, ".md")
 		story, err := ParseMdStory(string(content), lang)
 		if err != nil {
 			msg := fmt.Sprintf("parse story %s", file)
-			return i18n[StoryMd]{}, errwrap.Unexpected(msg, err)
+			return I18N[StoryMd]{}, errwrap.Unexpected(msg, err)
 		}
 		stories[lang] = story
 	}
@@ -409,7 +409,7 @@ var (
 	TalkSection    MdStorySection = func(s *StoryMd) *string { return &s.Talk }
 )
 
-var mdStorySectionI18n = i18n[map[string]MdStorySection]{
+var mdStorySectionI18n = I18N[map[string]MdStorySection]{
 	"en": {
 		"Story":       StorySection,
 		"Input":       InputSection,
@@ -662,8 +662,8 @@ func (dir TaskDirReader) Examples() ([]Example, error) {
 	return examples, nil
 }
 
-func parseMultilingualMd(content string) i18n[string] {
-	result := make(i18n[string])
+func parseMultilingualMd(content string) I18N[string] {
+	result := make(I18N[string])
 	content = strings.TrimSpace(content)
 
 	if content == "" {
