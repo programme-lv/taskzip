@@ -18,7 +18,7 @@ import (
 func ParseLio2024TaskDir(dirPath string) (taskfs.Task, error) {
 	parsedYaml, err := readYaml(dirPath)
 	if err != nil {
-		return taskfs.Task{}, errwrap.AddTrace(err)
+		return taskfs.Task{}, errwrap.Trace(err)
 	}
 
 	task := base(parsedYaml)
@@ -26,27 +26,27 @@ func ParseLio2024TaskDir(dirPath string) (taskfs.Task, error) {
 	var errs []error
 
 	if err := testing(&task, dirPath, parsedYaml); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		errs = append(errs, errwrap.Trace(err))
 	}
 
 	if err := tests(&task, dirPath, parsedYaml); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		errs = append(errs, errwrap.Trace(err))
 	}
 
 	if err := scoring(&task, parsedYaml); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		errs = append(errs, errwrap.Trace(err))
 	}
 
 	if err := statement(&task, dirPath, task.Testing.TestingT); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		errs = append(errs, errwrap.Trace(err))
 	}
 
 	if err := solutions(&task, dirPath); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		errs = append(errs, errwrap.Trace(err))
 	}
 
 	if err := archive(&task, dirPath, parsedYaml); err != nil {
-		errs = append(errs, errwrap.AddTrace(err))
+		errs = append(errs, errwrap.Trace(err))
 	}
 
 	return task, errors.Join(errs...)
@@ -61,12 +61,12 @@ func readYaml(dirPath string) (ParsedLio2024Yaml, error) {
 			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
 			return ParsedLio2024Yaml{}, errwrap.Error(msg)
 		}
-		return ParsedLio2024Yaml{}, errwrap.AddTrace(err)
+		return ParsedLio2024Yaml{}, errwrap.Trace(err)
 	}
 
 	parsedYaml, err := ParseLio2024Yaml(taskYamlContent)
 	if err != nil {
-		return ParsedLio2024Yaml{}, errwrap.AddTrace(err)
+		return ParsedLio2024Yaml{}, errwrap.Trace(err)
 	}
 
 	return parsedYaml, nil
@@ -91,7 +91,7 @@ func base(parsedYaml ParsedLio2024Yaml) taskfs.Task {
 	task.Testing.MemLimMiB = parsedYaml.MemoryLimitInMegabytes
 
 	task.ReadMe = `## TODO list
-	
+
 - [ ] port statement from .typ to .md in statement dir
 - [ ] subtask descriptions from .typ to task.toml
 - [ ] example notes from .typ to .md in example dir
@@ -111,7 +111,7 @@ func testing(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 		checkerPath := filepath.Join(dirPath, relativePath)
 		checkerBytes, err := os.ReadFile(checkerPath)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		task.Testing.Checker = string(checkerBytes)
 		task.Testing.TestingT = "checker"
@@ -122,7 +122,7 @@ func testing(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 		interactorPath := filepath.Join(dirPath, relativePath)
 		interactorBytes, err := os.ReadFile(interactorPath)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		task.Testing.Interactor = string(interactorBytes)
 		task.Testing.TestingT = "interactor"
@@ -140,7 +140,7 @@ func tests(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) erro
 			msg := fmt.Sprintf("test archive file not found: %s", testZipRelPath)
 			return errwrap.Error(msg)
 		}
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	sort.Slice(tests, func(i, j int) bool {
@@ -247,7 +247,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 	if _, err := os.Stat(tekstsDir); !errors.Is(err, fs.ErrNotExist) {
 		err := filepath.Walk(tekstsDir, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 			if info.IsDir() {
 				return nil
@@ -259,7 +259,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 				strings.HasSuffix(strings.ToLower(path), ".jpeg") {
 				content, err := os.ReadFile(path)
 				if err != nil {
-					return errwrap.AddTrace(err)
+					return errwrap.Trace(err)
 				}
 
 				task.Statement.Images = append(task.Statement.Images, taskfs.Image{
@@ -270,7 +270,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 			return nil
 		})
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 	}
 
@@ -278,7 +278,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 	if len(task.Statement.Subtasks) > 0 {
 		hasOutputFalse, err := checkTypFileForOutputFalse(dirPath)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		task.Statement.Subtasks[0].VisInput = hasOutputFalse
 	}
@@ -302,7 +302,7 @@ func checkTypFileForOutputFalse(dirPath string) (bool, error) {
 	})
 
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false, errwrap.AddTrace(err)
+		return false, errwrap.Trace(err)
 	}
 
 	if typFilePath == "" {
@@ -311,7 +311,7 @@ func checkTypFileForOutputFalse(dirPath string) (bool, error) {
 
 	content, err := os.ReadFile(typFilePath)
 	if err != nil {
-		return false, errwrap.AddTrace(err)
+		return false, errwrap.Trace(err)
 	}
 
 	// Check for "output: false" that is not commented out with //
@@ -319,7 +319,7 @@ func checkTypFileForOutputFalse(dirPath string) (bool, error) {
 	pattern := `(?m)^[^/]*output:\s*false`
 	matched, err := regexp.MatchString(pattern, string(content))
 	if err != nil {
-		return false, errwrap.AddTrace(err)
+		return false, errwrap.Trace(err)
 	}
 
 	return matched, nil
@@ -333,7 +333,7 @@ func solutions(task *taskfs.Task, dirPath string) error {
 
 	err := filepath.Walk(solutionsDirPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		if info.IsDir() {
 			return nil
@@ -341,12 +341,12 @@ func solutions(task *taskfs.Task, dirPath string) error {
 
 		relativePath, err := filepath.Rel(solutionsDirPath, path)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 
 		filename := filepath.Base(relativePath)
@@ -370,7 +370,7 @@ func solutions(task *taskfs.Task, dirPath string) error {
 	})
 
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	return nil
 }
@@ -384,7 +384,7 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 
 	err := filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		if info.IsDir() {
 			return nil
@@ -392,18 +392,18 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 
 		relativePath, err := filepath.Rel(dirPath, path)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		relativePath = "./" + relativePath
 
 		for _, prefix := range excludePrefixFromArchive {
 			prefixAbs, err := filepath.Abs(prefix)
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 			pathAbs, err := filepath.Abs(path)
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 			if pathAbs == prefixAbs {
 				return nil
@@ -415,7 +415,7 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 
 		task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
@@ -426,7 +426,7 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 	})
 
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	return nil
 }

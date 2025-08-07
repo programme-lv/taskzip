@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BooleanCat/go-functional/v2/it"
 	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/common/fn"
 	"github.com/programme-lv/task-zip/common/iso639"
 )
 
@@ -22,7 +22,7 @@ var ErrInvalidIso639LangCode = errwrap.Error("invalid ISO 639 language code")
 func (m I18N[T]) ValidateLangs() error {
 	for lang := range m {
 		if _, ok := iso639.Languages[lang]; !ok {
-			return errwrap.AddTrace(ErrInvalidIso639LangCode)
+			return errwrap.Trace(ErrInvalidIso639LangCode)
 		}
 	}
 	return nil
@@ -51,37 +51,36 @@ var (
 
 func (t *Task) Validate() (err error) {
 	if len(t.ShortID) == 0 {
-		err = errors.Join(err, errwrap.AddTrace(ErrShortIDEmpty))
+		err = errors.Join(err, errwrap.Trace(ErrShortIDEmpty))
 	}
 	if len(t.ShortID) > MaxShortIDLen {
-		err = errors.Join(err, errwrap.AddTrace(ErrShortIDTooLong))
+		err = errors.Join(err, errwrap.Trace(ErrShortIDTooLong))
 	}
 	for _, r := range t.ShortID {
 		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
-			err = errors.Join(err, errwrap.AddTrace(ErrShortIDInvalid))
+			err = errors.Join(err, errwrap.Trace(ErrShortIDInvalid))
 		}
 	}
 
 	if validateErr := t.Metadata.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.AddTrace(validateErr))
+		err = errors.Join(err, errwrap.Trace(validateErr))
 	}
 
 	if validateErr := t.Origin.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.AddTrace(validateErr))
+		err = errors.Join(err, errwrap.Trace(validateErr))
 	}
 
 	if validateErr := t.Testing.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.AddTrace(validateErr))
+		err = errors.Join(err, errwrap.Trace(validateErr))
 	}
 
 	if validateErr := t.Statement.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.AddTrace(validateErr))
+		err = errors.Join(err, errwrap.Trace(validateErr))
 	}
 
 	noOfTests := len(t.Testing.Tests)
-	noOfSubtasks := len(t.Statement.Subtasks)
-	if validateErr := t.Scoring.Validate(noOfTests, noOfSubtasks); validateErr != nil {
-		err = errors.Join(err, errwrap.AddTrace(validateErr))
+	if validateErr := t.Scoring.Validate(noOfTests, t.Statement.Subtasks); validateErr != nil {
+		err = errors.Join(err, errwrap.Trace(validateErr))
 	}
 
 	return err
@@ -101,25 +100,24 @@ func (t *Task) ValidateOld() error {
 	}
 
 	if err := t.Metadata.Validate(); err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	if err := t.Origin.ValidateOld(); err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	if err := t.Testing.Validate(); err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	if err := t.Statement.Validate(); err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	noOfTests := len(t.Testing.Tests)
-	noOfSubtasks := len(t.Statement.Subtasks)
-	if err := t.Scoring.Validate(noOfTests, noOfSubtasks); err != nil {
-		return errwrap.AddTrace(err)
+	if err := t.Scoring.Validate(noOfTests, t.Statement.Subtasks); err != nil {
+		return errwrap.Trace(err)
 	}
 
 	return nil
@@ -186,42 +184,42 @@ var (
 
 func (o *Origin) Validate() (err error) {
 	if len(o.Olympiad) > MaxAbbrevLen || !isUpperOrDigits(o.Olympiad) {
-		err = errors.Join(err, errwrap.AddTrace(ErrOlympAbbrevInvalid))
+		err = errors.Join(err, errwrap.Trace(ErrOlympAbbrevInvalid))
 	}
 	if (o.Olympiad != "") != (o.OlyStage != "") {
-		err = errors.Join(err, errwrap.AddTrace(ErrStageIffOlympiad))
+		err = errors.Join(err, errwrap.Trace(ErrStageIffOlympiad))
 	}
 	if o.OlyStage != "" {
 		if !slices.Contains(OlympStages, o.OlyStage) {
-			err = errors.Join(err, errwrap.AddTrace(WarnUnknownOlympStage))
+			err = errors.Join(err, errwrap.Trace(WarnUnknownOlympStage))
 		}
 	}
 	if !(len(o.Olympiad) > 0 || len(o.Org) > 0 || len(o.Authors) > 0) {
-		err = errors.Join(err, errwrap.AddTrace(WarnNonTraceableTask))
+		err = errors.Join(err, errwrap.Trace(WarnNonTraceableTask))
 	}
 	if len(o.Org) > MaxAbbrevLen || !isUpperOrDigits(o.Org) {
-		err = errors.Join(err, errwrap.AddTrace(ErrOrgAbbrevInvalid))
+		err = errors.Join(err, errwrap.Trace(ErrOrgAbbrevInvalid))
 	}
 	for _, note := range o.Notes {
 		if len(note) > MaxOrigNoteLen {
-			err = errors.Join(err, errwrap.AddTrace(WarnOriginNoteTooLong))
+			err = errors.Join(err, errwrap.Trace(WarnOriginNoteTooLong))
 			break
 		}
 	}
 	for _, author := range o.Authors {
 		if len(author) > MaxAuthorNameLen {
-			err = errors.Join(err, errwrap.AddTrace(WarnAuthorNameTooLong))
+			err = errors.Join(err, errwrap.Trace(WarnAuthorNameTooLong))
 			break
 		}
 	}
 	if len(o.Authors) > MaxNoOfAuthors {
-		err = errors.Join(err, errwrap.AddTrace(WarnTooManyAuthors))
+		err = errors.Join(err, errwrap.Trace(WarnTooManyAuthors))
 	}
 	if err := o.Notes.ValidateLangs(); err != nil {
-		err = errors.Join(err, errwrap.AddTrace(err))
+		err = errors.Join(err, errwrap.Trace(err))
 	}
 	if err := ValidateOriginYear(o.Year); err != nil {
-		err = errors.Join(err, errwrap.AddTrace(err))
+		err = errors.Join(err, errwrap.Trace(err))
 	}
 
 	return err
@@ -451,12 +449,15 @@ func (s *Scoring) validateTestSumT(noOfTests int) error {
 	return nil
 }
 
-func (s *Scoring) validateMinGroupsT(noOfSubtasks int) error {
+func (s *Scoring) validateMinGroupsT(subtasks []Subtask) error {
 	hasGroups := len(s.Groups) > 0
 	if !hasGroups {
 		return errwrap.Error("test groups required for min-groups scoring")
 	}
-	if err := s.validateGroupSubtaskLinks(noOfSubtasks); err != nil {
+	if err := s.validateGroupSubtaskLinks(len(subtasks)); err != nil {
+		return err
+	}
+	if err := s.validateGroupPointSumPerSubtask(subtasks); err != nil {
 		return err
 	}
 	if err := s.validateGroupPointSum(); err != nil {
@@ -479,10 +480,25 @@ func (s *Scoring) validateGroupPointSum() error {
 	return nil
 }
 
+var ErrSubtaskGroupSumPointsMismatch = errwrap.Error("subtask points must equal sum over its groups")
+
+func (s *Scoring) validateGroupPointSumPerSubtask(subtasks []Subtask) error {
+	pointsPerSubtask := make([]int, len(subtasks))
+	for _, group := range s.Groups {
+		pointsPerSubtask[group.Subtask-1] += group.Points
+	}
+	for i, subtask := range subtasks {
+		if pointsPerSubtask[i] != subtask.Points {
+			msg := fmt.Sprintf("subtask %d points %d != sum of its groups %d", i+1, subtask.Points, pointsPerSubtask[i])
+			return errwrap.Wrap(msg, ErrSubtaskGroupSumPointsMismatch)
+		}
+	}
+	return nil
+}
+
 func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 	tgStLink := func(group TestGroup) int { return group.Subtask }
-	stLinks := it.Map(slices.Values(s.Groups), tgStLink)
-	count := len(slices.Collect(it.FilterUnique(stLinks)))
+	count := len(fn.Unique(fn.Map(s.Groups, tgStLink)))
 	if count != noOfSubtasks {
 		return errwrap.Error("all subtasks must be linked to in testgroups")
 	}
@@ -494,7 +510,7 @@ func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 	}
 
 	outOfRange := func(link int) bool { return link < 1 || link > noOfSubtasks }
-	anyOutOfRange := it.Any(it.Map(stLinks, outOfRange))
+	anyOutOfRange := fn.Any(fn.Map(s.Groups, tgStLink), outOfRange)
 	if anyOutOfRange {
 		return errwrap.Error("subtask link in testgroups are out of range")
 	}
@@ -502,7 +518,7 @@ func (s *Scoring) validateGroupSubtaskLinks(noOfSubtasks int) error {
 	return nil
 }
 
-func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
+func (s *Scoring) Validate(noOfTests int, subtasksIfAny []Subtask) error {
 	if s.TotalP <= 0 {
 		return errwrap.Error("total points must be positive")
 	}
@@ -510,7 +526,7 @@ func (s *Scoring) Validate(noOfTests int, noOfSubtasks int) error {
 		return s.validateTestSumT(noOfTests)
 	}
 	if s.ScoringT == "min-groups" {
-		return s.validateMinGroupsT(noOfSubtasks)
+		return s.validateMinGroupsT(subtasksIfAny)
 	}
 	return errwrap.Error(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
 }
@@ -525,7 +541,7 @@ type Statement struct {
 func (s *Statement) Validate() error {
 	for _, example := range s.Examples {
 		if err := example.Validate(); err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 	}
 	return nil

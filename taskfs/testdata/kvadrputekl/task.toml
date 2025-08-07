@@ -39,6 +39,11 @@ id='kvadrputekl'
   subtasks = [1] 
 
 [[subtasks]]
-  points = 20
+  points = 6
+  description.lv = "Uzdevuma tekstā dotie trīs piemēri."
+  description.en = "The three examples given in the problem statement."
+
+[[subtasks]]
+  points = 94
   description.lv = "Uzdevuma tekstā dotie trīs piemēri."
   description.en = "The three examples given in the problem statement."

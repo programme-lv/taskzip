@@ -11,34 +11,39 @@ import (
 	"github.com/programme-lv/task-zip/common/errwrap"
 )
 
+var (
+	ErrDstDirExists = errwrap.Error("destination dir must not exist")
+)
+
+// We expect dirPath to not exist whereas its parent dir does.
 func Write(task Task, dirPath string) error {
 	dirAbsPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		msg := fmt.Sprintf("get abs path of %s", dirPath)
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 
 	if doesDirExist(dirAbsPath) {
 		msg := fmt.Sprintf("dir %s already exists", dirAbsPath)
-		return errwrap.Unexpected(msg, nil)
+		return errwrap.Wrap(msg, ErrDstDirExists)
 	}
 
 	parentDir := filepath.Dir(dirAbsPath)
 	if !doesDirExist(parentDir) {
 		msg := fmt.Sprintf("parent dir %s does not exist", parentDir)
-		return errwrap.Unexpected(msg, nil)
+		return errwrap.Wrap(msg, nil)
 	}
 
 	err = os.Mkdir(dirAbsPath, 0755)
 	if err != nil {
 		msg := fmt.Sprintf("create dir %s", dirAbsPath)
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 
 	writer, err := NewTaskWriter(dirAbsPath, task)
 	if err != nil {
 		msg := fmt.Sprintf("init task dir writer %s", dirAbsPath)
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 
 	return writer.WriteTask()
@@ -62,15 +67,15 @@ func NewTaskWriter(
 	files, err := os.ReadDir(taskDirAbsPath)
 	if err != nil {
 		msg := fmt.Sprintf("read task dir %s", taskDirAbsPath)
-		return TaskWriter{}, errwrap.Unexpected(msg, err)
+		return TaskWriter{}, errwrap.Wrap(msg, err)
 	}
 	if len(files) > 0 {
 		msg := fmt.Sprintf("dir %s is not empty", taskDirAbsPath)
-		return TaskWriter{}, errwrap.Unexpected(msg, nil)
+		return TaskWriter{}, errwrap.Wrap(msg, nil)
 	}
 
 	if err := taskToWrite.ValidateOld(); err != nil {
-		return TaskWriter{}, errwrap.AddTrace(err)
+		return TaskWriter{}, errwrap.Trace(err)
 	}
 
 	return TaskWriter{
@@ -122,7 +127,7 @@ func (w TaskWriter) WriteTask() error {
 func (w TaskWriter) Readme() error {
 	err := w.WriteFile("readme.md", []byte(w.task.ReadMe))
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	return nil
 }
@@ -131,7 +136,7 @@ func (w TaskWriter) WriteFile(path string, content []byte) error {
 	absPath := filepath.Join(w.path, path)
 	err := os.WriteFile(absPath, content, 0755)
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	return nil
 }
@@ -140,7 +145,7 @@ func (w TaskWriter) CreateDir(path string) error {
 	absPath := filepath.Join(w.path, path)
 	err := os.Mkdir(absPath, 0755)
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	return nil
 }
@@ -156,11 +161,11 @@ func (w TaskWriter) TaskToml() error {
 
 	err := enc.Encode(taskToml)
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	err = w.WriteFile(tomlPath, buf.Bytes())
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 	return nil
 }
@@ -168,20 +173,20 @@ func (w TaskWriter) TaskToml() error {
 func (w TaskWriter) Testlib() error {
 	err := w.CreateDir("testlib")
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	if w.task.Testing.Checker != "" {
 		err := w.WriteFile("testlib/checker.cpp", []byte(w.task.Testing.Checker))
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 	}
 
 	if w.task.Testing.Interactor != "" {
 		err := w.WriteFile("testlib/interactor.cpp", []byte(w.task.Testing.Interactor))
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 	}
 	return nil
@@ -190,7 +195,7 @@ func (w TaskWriter) Testlib() error {
 func (w TaskWriter) Tests() error {
 	err := w.CreateDir("tests")
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	for i, test := range w.task.Testing.Tests {
@@ -198,11 +203,11 @@ func (w TaskWriter) Tests() error {
 		outPath := fmt.Sprintf("tests/%03do.txt", i+1)
 		err := w.WriteFile(inPath, []byte(test.Input))
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		err = w.WriteFile(outPath, []byte(test.Answer))
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 	}
 
@@ -213,14 +218,14 @@ func (w TaskWriter) Solutions() error {
 	solutionsDir := "solutions"
 	err := w.CreateDir("solutions")
 	if err != nil {
-		return errwrap.AddTrace(err)
+		return errwrap.Trace(err)
 	}
 
 	for _, sol := range w.task.Solutions {
 		solPath := filepath.Join(solutionsDir, sol.Fname)
 		err := w.WriteFile(solPath, []byte(sol.Content))
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 	}
 	return nil
@@ -231,7 +236,7 @@ func (w TaskWriter) Examples() error {
 	err := w.CreateDir("examples")
 	if err != nil {
 		msg := "create examples directory"
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 
 	for i, example := range w.task.Statement.Examples {
@@ -241,12 +246,12 @@ func (w TaskWriter) Examples() error {
 		err := w.WriteFile(inPath, []byte(example.Input))
 		if err != nil {
 			msg := fmt.Sprintf("write example %d input", i)
-			return errwrap.Unexpected(msg, err)
+			return errwrap.Wrap(msg, err)
 		}
 		err = w.WriteFile(outPath, []byte(example.Output))
 		if err != nil {
 			msg := fmt.Sprintf("write example %d output", i)
-			return errwrap.Unexpected(msg, err)
+			return errwrap.Wrap(msg, err)
 		}
 		mdNoteContent := ""
 		for lang, note := range example.MdNote {
@@ -255,7 +260,7 @@ func (w TaskWriter) Examples() error {
 		err = w.WriteFile(notePath, []byte(mdNoteContent))
 		if err != nil {
 			msg := fmt.Sprintf("write example %d note", i)
-			return errwrap.Unexpected(msg, err)
+			return errwrap.Wrap(msg, err)
 		}
 	}
 	return nil
@@ -282,7 +287,7 @@ func (w TaskWriter) TestGroups() error {
 	err := w.WriteFile(filePath, []byte(content))
 	if err != nil {
 		msg := "write testgroups.txt"
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 	return nil
 }
@@ -291,7 +296,7 @@ func (w TaskWriter) Statement() error {
 	err := w.CreateDir("statement")
 	if err != nil {
 		msg := "create statement directory"
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 
 	// Write story files for each language
@@ -301,7 +306,7 @@ func (w TaskWriter) Statement() error {
 		err := w.WriteFile(storyPath, []byte(content))
 		if err != nil {
 			msg := fmt.Sprintf("write story %s", lang)
-			return errwrap.Unexpected(msg, err)
+			return errwrap.Wrap(msg, err)
 		}
 	}
 
@@ -311,7 +316,7 @@ func (w TaskWriter) Statement() error {
 		err := w.WriteFile(imagePath, image.Content)
 		if err != nil {
 			msg := fmt.Sprintf("write image %s", image.Fname)
-			return errwrap.Unexpected(msg, err)
+			return errwrap.Wrap(msg, err)
 		}
 	}
 
@@ -393,7 +398,7 @@ func (w TaskWriter) Archive() error {
 	err := w.CreateDir("archive")
 	if err != nil {
 		msg := "create archive directory"
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 
 	for _, file := range w.task.Archive.Files {
@@ -404,7 +409,7 @@ func (w TaskWriter) Archive() error {
 			err := w.CreateDirAll(archiveSubDir)
 			if err != nil {
 				msg := fmt.Sprintf("create archive subdirectory %s", dir)
-				return errwrap.Unexpected(msg, err)
+				return errwrap.Wrap(msg, err)
 			}
 		}
 
@@ -412,7 +417,7 @@ func (w TaskWriter) Archive() error {
 		err := w.WriteFile(filePath, file.Content)
 		if err != nil {
 			msg := fmt.Sprintf("write archive file %s", file.RelPath)
-			return errwrap.Unexpected(msg, err)
+			return errwrap.Wrap(msg, err)
 		}
 	}
 
@@ -424,7 +429,7 @@ func (w TaskWriter) CreateDirAll(path string) error {
 	err := os.MkdirAll(absPath, 0755)
 	if err != nil {
 		msg := fmt.Sprintf("create directory %s", path)
-		return errwrap.Unexpected(msg, err)
+		return errwrap.Wrap(msg, err)
 	}
 	return nil
 }

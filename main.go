@@ -2,16 +2,33 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/lmittmann/tint"
+	"github.com/programme-lv/task-zip/common/errwrap"
 	"github.com/programme-lv/task-zip/external/lio/lio2023"
+	"github.com/programme-lv/task-zip/external/lio/lio2024"
 	"github.com/programme-lv/task-zip/taskfs"
 	"github.com/spf13/cobra"
 )
 
 func main() {
+	w := os.Stderr
+
+	slog.SetDefault(slog.New(
+		tint.NewHandler(w, &tint.Options{
+			Level: slog.LevelInfo,
+			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+				if a.Key == slog.TimeKey && len(groups) == 0 {
+					return slog.Attr{}
+				}
+				return a
+			},
+		}),
+	))
+
 	var rootCmd = &cobra.Command{
 		Use:   "task-zip",
 		Short: "Task .zip archive management CLI tool",
@@ -25,15 +42,11 @@ func main() {
 		Use:   "transform",
 		Short: "Transform task format to task-zip format",
 		Run: func(cmd *cobra.Command, args []string) {
-			log.Printf("src: %s", src)
-			log.Printf("dst: %s", dst)
-			log.Printf("format: %s", format)
 			err := transform(src, dst, format)
 			if err != nil {
-				log.Printf("Transform task failed: %v", err)
+				slog.Error("transform task failed", "error", err)
 				os.Exit(1)
 			}
-			log.Print("Transform completed successfully")
 		},
 	}
 
@@ -54,24 +67,30 @@ func main() {
 }
 
 func transform(src string, dst string, format string) error {
-	if format != "lio2023" {
-		return fmt.Errorf("unsupported format: %s", format)
+	slog.Info("start transform", "src", src, "dst", dst, "format", format)
+
+	var task taskfs.Task
+	var err error
+	switch format {
+	case "lio2023":
+		task, err = lio2023.ParseLio2023TaskDir(src)
+	case "lio2024":
+		task, err = lio2024.ParseLio2024TaskDir(src)
+	default:
+		msg := fmt.Sprintf("unsupported task format: %s", format)
+		return errwrap.Error(msg)
 	}
-
-	fmt.Printf("Starting transformLio2023Task - src: %s, parent dst: %s\n", src, dst)
-
-	task, err := lio2023.ParseLio2023TaskDir(src)
 	if err != nil {
-		return fmt.Errorf("error parsing task: %w", err)
+		return errwrap.Wrap("parsing task in transform cmd", err)
 	}
-	fmt.Printf("Parsed LIO2023 task: %v\n", task.FullName)
 
 	path := filepath.Join(dst, task.ShortID)
 	fmt.Printf("Creating task directory: %s\n", path)
 
 	err = taskfs.Write(task, path)
 	if err != nil {
-		return fmt.Errorf("error storing task: %w", err)
+		msg := fmt.Sprintf("error writing task to %s", path)
+		return errwrap.Wrap(msg, err)
 	}
 	fmt.Println("Stored transformed task")
 

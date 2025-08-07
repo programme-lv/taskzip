@@ -2,117 +2,156 @@ package errwrap
 
 import (
 	"errors"
-	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 )
 
-// Unexpected wraps internal errors (not client's fault).
-// Its the same as a fmt.Errorf but with a trace.
-func Unexpected(msg string, err error) error {
+// Wrap adds a message and a trace to the error
+func Wrap(msg string, err error) *tracedError {
 	_, file, line, _ := runtime.Caller(1)
-	dir := filepath.Base(filepath.Dir(file))
-	file = filepath.Base(file)
-	if err != nil {
-		return fmt.Errorf("[%s/%s:%d] %s\n%w", dir, file, line, msg, err)
-	} else {
-		return fmt.Errorf("[%s/%s:%d] %s", dir, file, line, msg)
+	path := srcFilePath(file)
+	return &tracedError{
+		file: path,
+		line: line,
+		err:  err,
+		msg:  msg,
 	}
 }
 
-// Error initiates domain error, caller / client bad request expected errors.
-// client / caller errors occur when client violates an invariant.
-// Or in other words, they violate a set of assumptions that must
-// always be true and are inflexible.
-// These are well-formed and can be shown to the user of the service.
-func Error(msg string) error {
+// Trace adds a trace - file path and line number - to the error
+func Trace(err error) *tracedError {
 	_, file, line, _ := runtime.Caller(1)
-	dir := filepath.Base(filepath.Dir(file))
-	file = filepath.Base(file)
-	err := ClientErrorType{msg: msg}
-	return fmt.Errorf("[%s/%s:%d] %w", dir, file, line, err)
+	path := srcFilePath(file)
+	return &tracedError{
+		file: path,
+		line: line,
+		err:  err,
+	}
 }
 
-// Warning initiates non-fatal errors: stylistic, semantic, etc.
-// A task after being trasnformed into a taskfs.Task from an external source
-// may contain errors but that does not mean that the execution of the program
-// should fail. Warning should be presented to the user so they can fix them.
-// Warnings usually indicate missing data.
-// A task to be published should have no warning messages.
-func Warning(msg string) error {
-	_, file, line, _ := runtime.Caller(1)
-	dir := filepath.Base(filepath.Dir(file))
-	file = filepath.Base(file)
-	err := warning{msg: msg, dir: dir, file: file, line: line}
-	return err
+// Error defines strict bad request error that can be shown to the user
+// Such errors should not include unexpected server errors
+func Error(msg string) errorType {
+	return errorType{msg: msg}
 }
 
-// AddTrace wraps an error with the file and line number of the caller
-func AddTrace(err error) error {
-	_, file, line, _ := runtime.Caller(1)
-	dir := filepath.Base(filepath.Dir(file))
-	file = filepath.Base(file)
-	return fmt.Errorf("[%s/%s:%d] ...\n%w", dir, file, line, err)
+// Warning defines non-fatal errors that can be shown to the user
+func Warning(msg string) warningType {
+	return warningType{msg: msg}
 }
 
-func ExtractClientError(err error) (string, bool) {
-	var clientError ClientErrorType
-	if errors.As(err, &clientError) {
-		return clientError.msg, true
+// ExtractError extracts fatal error message from the error if any
+func ExtractError(err error) (string, bool) {
+	var error errorType
+	if errors.As(err, &error) {
+		return error.msg, true
 	}
 	return "", false
 }
 
-type ClientErrorType struct {
+type errorType struct {
 	msg string // note that in this (client) error, msg is public
 }
 
-func (e ClientErrorType) Error() string {
+func (e errorType) Error() string {
 	return e.msg
 }
 
-type warning struct {
-	dir  string
-	file string
-	line int
-	msg  string
+type warningType struct {
+	msg string
 }
 
-func (e warning) Error() string {
-	return fmt.Sprintf("[%s/%s:%d] %s", e.dir, e.file, e.line, e.msg)
+func (w warningType) Error() string {
+	return w.msg
 }
 
-func GetAllLeafErrors(err error) []error {
+func getLeafErrors(err error) []error {
 	leafErrors := []error{}
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range uw.Unwrap() {
-			leafErrors = append(leafErrors, GetAllLeafErrors(e)...)
+			leafErrors = append(leafErrors, getLeafErrors(e)...)
 		}
 	} else if uw, ok := err.(interface{ Unwrap() error }); ok {
-		leafErrors = append(leafErrors, GetAllLeafErrors(uw.Unwrap())...)
+		leafErrors = append(leafErrors, getLeafErrors(uw.Unwrap())...)
 	} else {
 		leafErrors = append(leafErrors, err)
 	}
 	return leafErrors
 }
 
-// IsCritical returns true if there is an error that is not a warning.
+// IsCritical returns whether there is an error that isnt a warning
 func IsCritical(err error) bool {
-	for _, e := range GetAllLeafErrors(err) {
-		if !errors.As(e, &warning{}) {
+	for _, e := range getLeafErrors(err) {
+		if !errors.As(e, &warningType{}) {
 			return true
 		}
 	}
 	return false
 }
 
-func GetAllWarnings(err error) []warning {
-	warnings := []warning{}
-	for _, e := range GetAllLeafErrors(err) {
-		w := warning{}
+// GetWarnings returns all warning messages from the error
+func GetWarnings(err error) []string {
+	warnings := []string{}
+	for _, e := range getLeafErrors(err) {
+		w := warningType{}
 		if errors.As(e, &w) {
-			warnings = append(warnings, w)
+			warnings = append(warnings, w.msg)
 		}
 	}
 	return warnings
+}
+
+// by default we should not be attaching a trace to an error
+// we should
+
+type leafError struct {
+	msg   string
+	trace []struct {
+		file string
+		line int
+		msg  string
+	}
+}
+
+type tracedError struct {
+	file string
+	line int
+	msg  string
+
+	err error
+}
+
+func (e tracedError) Error() string {
+	return e.err.Error()
+}
+
+func (e tracedError) Is(target error) bool {
+	// does support Is?
+	if uw, ok := e.err.(interface{ Is(error) bool }); ok {
+		return uw.Is(target)
+	}
+	return false
+}
+
+func (e tracedError) Unwrap() error {
+	return e.err
+}
+
+func (e tracedError) Traced() string {
+	// so we get a list of all errors and as we dfs we pass a trace to the error
+	// okay, so first of all... if the error does not support unwrap, we just return the error
+	return ""
+}
+
+func srcFilePath(absPath string) string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return absPath
+	}
+	relPath, err := filepath.Rel(wd, absPath)
+	if err != nil {
+		return absPath
+	}
+	return relPath
 }

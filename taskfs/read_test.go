@@ -111,11 +111,15 @@ func TestReadStatement(t *testing.T) {
 }
 
 func Statement(t *testing.T, task *taskfs.Task) {
-	require.Len(t, task.Statement.Subtasks, 1)
+	require.Len(t, task.Statement.Subtasks, 2)
 	subtask := task.Statement.Subtasks[0]
-	require.Equal(t, 20, subtask.Points)
+	require.Equal(t, 6, subtask.Points)
 	require.Equal(t, "Uzdevuma tekstā dotie trīs piemēri.", subtask.Desc["lv"])
 	require.Equal(t, "The three examples given in the problem statement.", subtask.Desc["en"])
+	subtask2 := task.Statement.Subtasks[1]
+	require.Equal(t, 94, subtask2.Points)
+	require.Equal(t, "Uzdevuma tekstā dotie trīs piemēri.", subtask2.Desc["lv"])
+	require.Equal(t, "The three examples given in the problem statement.", subtask2.Desc["en"])
 
 	require.Len(t, task.Statement.Examples, 2)
 	example := task.Statement.Examples[0]

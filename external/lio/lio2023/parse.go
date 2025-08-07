@@ -23,12 +23,12 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
 			return taskfs.Task{}, errwrap.Error(msg)
 		}
-		return taskfs.Task{}, errwrap.AddTrace(err)
+		return taskfs.Task{}, errwrap.Trace(err)
 	}
 
 	taskYaml, err := ParseLio2023Yaml(taskYamlContent)
 	if err != nil {
-		return taskfs.Task{}, errwrap.AddTrace(err)
+		return taskfs.Task{}, errwrap.Trace(err)
 	}
 
 	task := taskfs.Task{}
@@ -72,14 +72,14 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	if _, err := os.Stat(interactorPath); !errors.Is(err, fs.ErrNotExist) {
 		content, err := os.ReadFile(interactorPath)
 		if err != nil {
-			return taskfs.Task{}, errwrap.AddTrace(err)
+			return taskfs.Task{}, errwrap.Trace(err)
 		}
 		task.Testing.Interactor = string(content)
 		task.Testing.TestingT = "interactor"
 	} else if _, err := os.Stat(checkerPath); !errors.Is(err, fs.ErrNotExist) {
 		content, err := os.ReadFile(checkerPath)
 		if err != nil {
-			return taskfs.Task{}, errwrap.AddTrace(err)
+			return taskfs.Task{}, errwrap.Trace(err)
 		}
 		task.Testing.Checker = string(content)
 		task.Testing.TestingT = "checker"
@@ -90,7 +90,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		// loop through all files in risin using filepath.Walk
 		err = filepath.Walk(solutionsPath, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 			if info.IsDir() {
 				return nil
@@ -98,12 +98,12 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 
 			relativePath, err := filepath.Rel(solutionsPath, path)
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 
 			content, err := os.ReadFile(path)
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 
 			task.Solutions = append(task.Solutions, taskfs.Solution{
@@ -116,7 +116,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		})
 
 		if err != nil {
-			return taskfs.Task{}, errwrap.AddTrace(err)
+			return taskfs.Task{}, errwrap.Trace(err)
 		}
 	}
 
@@ -128,7 +128,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 			msg := fmt.Sprintf("test archive file not found: %s", taskYaml.TestArchive)
 			return taskfs.Task{}, errwrap.Error(msg)
 		}
-		return taskfs.Task{}, errwrap.AddTrace(err)
+		return taskfs.Task{}, errwrap.Trace(err)
 	}
 
 	testGroupTestIds := make(map[int][]int)
@@ -161,7 +161,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return taskfs.Task{}, errwrap.Error("punkti.txt file not found")
 		}
-		return taskfs.Task{}, errwrap.AddTrace(err)
+		return taskfs.Task{}, errwrap.Trace(err)
 	}
 	// split by "\n"
 	parts := strings.Split(string(punktiTxtContent), "\n")
@@ -236,24 +236,24 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	// Archive files go in Archive.Files
 	err = filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		if info.IsDir() {
 			return nil
 		}
 		relativePath, err := filepath.Rel(dirPath, path)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		relativePath = "./" + relativePath
 		for _, prefix := range excludePrefixFromArchive {
 			prefixAbs, err := filepath.Abs(prefix)
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 			pathAbs, err := filepath.Abs(path)
 			if err != nil {
-				return errwrap.AddTrace(err)
+				return errwrap.Trace(err)
 			}
 			if pathAbs == prefixAbs {
 				return nil
@@ -264,7 +264,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return errwrap.AddTrace(err)
+			return errwrap.Trace(err)
 		}
 		// Archive structure changed - it's now Archive.Files
 		task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
@@ -274,7 +274,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		return nil
 	})
 	if err != nil {
-		return taskfs.Task{}, errwrap.AddTrace(err)
+		return taskfs.Task{}, errwrap.Trace(err)
 	}
 
 	// Origin structure changed
