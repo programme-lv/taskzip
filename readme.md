@@ -22,3 +22,9 @@ The following task types are possible:
 
 Subtasks are a part of the statement.
 Scoring is always 
+
+
+Ideas to improve the archive format:
+- include `validator.cpp` in the `testlib` directory
+- move illustration image to the root of archive
+- move original pdf statemnets out of the reserved dir
