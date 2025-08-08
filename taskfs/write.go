@@ -24,8 +24,7 @@ func Write(task Task, dirPath string) error {
 	}
 
 	if doesDirExist(dirAbsPath) {
-		msg := fmt.Sprintf("dir %s already exists", dirAbsPath)
-		return errwrap.Wrap(msg, ErrDstDirExists)
+		return errwrap.Trace(ErrDstDirExists)
 	}
 
 	parentDir := filepath.Dir(dirAbsPath)
@@ -42,11 +41,22 @@ func Write(task Task, dirPath string) error {
 
 	writer, err := NewTaskWriter(dirAbsPath, task)
 	if err != nil {
-		msg := fmt.Sprintf("init task dir writer %s", dirAbsPath)
+		err2 := os.Remove(dirAbsPath)
+		if err2 != nil {
+			msg := fmt.Sprintf("remove dir %s", dirAbsPath)
+			return errwrap.Wrap(msg, err2)
+		}
+		msg := fmt.Sprintf("init writer to %s for task %s", dirAbsPath, task.ShortID)
 		return errwrap.Wrap(msg, err)
 	}
 
-	return writer.WriteTask()
+	err = writer.WriteTask()
+	if err != nil {
+		msg := fmt.Sprintf("write task to %s", dirAbsPath)
+		return errwrap.Wrap(msg, err)
+	}
+
+	return nil
 }
 
 func doesDirExist(dirPath string) bool {
@@ -72,10 +82,6 @@ func NewTaskWriter(
 	if len(files) > 0 {
 		msg := fmt.Sprintf("dir %s is not empty", taskDirAbsPath)
 		return TaskWriter{}, errwrap.Wrap(msg, nil)
-	}
-
-	if err := taskToWrite.ValidateOld(); err != nil {
-		return TaskWriter{}, errwrap.Trace(err)
 	}
 
 	return TaskWriter{

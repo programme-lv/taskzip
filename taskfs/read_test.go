@@ -87,7 +87,7 @@ func Testing(t *testing.T, task *taskfs.Task) {
 	require.Contains(t, task.Testing.Checker, "hello world")
 	require.Empty(t, task.Testing.Interactor)
 
-	require.Equal(t, 2, len(task.Testing.Tests))
+	require.Equal(t, 4, len(task.Testing.Tests))
 
 	for i, test := range task.Testing.Tests {
 		require.NotEmpty(t, test.Input, "Test %d input should not be empty", i+1)
@@ -154,13 +154,13 @@ func Scoring(t *testing.T, task *taskfs.Task) {
 
 	require.Len(t, task.Scoring.Groups, 3)
 	second := task.Scoring.Groups[1]
-	require.Equal(t, [2]int{6, 10}, second.Range)
+	require.Equal(t, [2]int{3, 3}, second.Range)
 	require.Equal(t, 3, second.Points)
 	require.Equal(t, 1, second.Subtask)
 	require.True(t, second.Public)
 
 	third := task.Scoring.Groups[2]
-	require.Equal(t, [2]int{11, 13}, third.Range)
+	require.Equal(t, [2]int{4, 4}, third.Range)
 	require.Equal(t, 94, third.Points)
 	require.Equal(t, 2, third.Subtask)
 	require.False(t, third.Public)

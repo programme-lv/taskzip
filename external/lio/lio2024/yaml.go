@@ -14,6 +14,7 @@ type ParsedLio2024Yaml struct {
 	TestZipPathRelToYaml    string
 	CheckerPathRelToYaml    *string
 	InteractorPathRelToYaml *string
+	ValidatorPathRelToYaml  *string
 	SubtaskPoints           []int
 	TestGroups              []ParsedLio2024YamlTestGroup
 }
@@ -34,6 +35,7 @@ type rawYaml struct {
 	TestsZipRelPath   string   `yaml:"tests_archive"`
 	CheckerRelPath    *string  `yaml:"checker"`
 	InteractorRelPath *string  `yaml:"interactor"`
+	ValidatorRelPath  *string  `yaml:"validator"`
 	SubtaskPoitns     []int    `yaml:"subtask_points"`
 	TestGroups        []yamlTg `yaml:"tests_groups"`
 }
@@ -61,6 +63,7 @@ func ParseLio2024Yaml(content []byte) (res ParsedLio2024Yaml, err error) {
 	res.TestZipPathRelToYaml = rawYaml.TestsZipRelPath
 	res.CheckerPathRelToYaml = rawYaml.CheckerRelPath
 	res.InteractorPathRelToYaml = rawYaml.InteractorRelPath
+	res.ValidatorPathRelToYaml = rawYaml.ValidatorRelPath
 	res.SubtaskPoints = rawYaml.SubtaskPoitns
 
 	for _, group := range rawYaml.TestGroups {

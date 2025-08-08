@@ -92,12 +92,11 @@ func base(parsedYaml ParsedLio2024Yaml) taskfs.Task {
 
 	task.ReadMe = `## TODO list
 
+- [ ] specify the year & stage of the olympiad in task.toml
+- [ ] paste descriptive note of the olympiad in task.toml
 - [ ] port statement from .typ to .md in statement dir
 - [ ] subtask descriptions from .typ to task.toml
 - [ ] example notes from .typ to .md in example dir
-- [ ] specify the year & stage of the olympiad in task.toml
-- [ ] add detailed note of the olympiad in task.toml
-- [ ] optionally list the authors in task.toml
 - [ ] should list the authors in origin in task.toml
 - [ ] determine difficulty based on # of ACs in contest
 `

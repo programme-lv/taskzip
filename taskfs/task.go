@@ -63,24 +63,29 @@ func (t *Task) Validate() (err error) {
 	}
 
 	if validateErr := t.Metadata.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.Trace(validateErr))
+		msg := "validate metadata"
+		err = errors.Join(err, errwrap.Wrap(msg, validateErr))
 	}
 
 	if validateErr := t.Origin.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.Trace(validateErr))
+		msg := "validate origin"
+		err = errors.Join(err, errwrap.Wrap(msg, validateErr))
 	}
 
 	if validateErr := t.Testing.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.Trace(validateErr))
+		msg := "validate testing"
+		err = errors.Join(err, errwrap.Wrap(msg, validateErr))
 	}
 
 	if validateErr := t.Statement.Validate(); validateErr != nil {
-		err = errors.Join(err, errwrap.Trace(validateErr))
+		msg := "validate statement"
+		err = errors.Join(err, errwrap.Wrap(msg, validateErr))
 	}
 
 	noOfTests := len(t.Testing.Tests)
 	if validateErr := t.Scoring.Validate(noOfTests, t.Statement.Subtasks); validateErr != nil {
-		err = errors.Join(err, errwrap.Trace(validateErr))
+		msg := "validate scoring"
+		err = errors.Join(err, errwrap.Wrap(msg, validateErr))
 	}
 
 	return err
@@ -165,7 +170,7 @@ type Origin struct {
 	Year     string       // yyyy | yyyy/yyyy e.g. 2024/2025.
 }
 
-var OlympStages = []string{"school", "municipal", "national", "selection", "regional", "international"}
+var OlympStages = []string{"online", "school", "municipal", "national", "selection", "regional", "international"}
 var MaxAbbrevLen = 10
 var MaxOrigNoteLen = 200
 var MaxAuthorNameLen = 50
@@ -173,7 +178,8 @@ var MaxNoOfAuthors = 10
 
 var (
 	ErrOlympAbbrevInvalid = errwrap.Error(fmt.Sprintf("olympiad (abbrev) must be uppercase, alphanumeric, max %d chars", MaxAbbrevLen))
-	ErrStageIffOlympiad   = errwrap.Error("olympiad stage must be set if (and only if) olympiad is non-empty")
+	ErrStageWithoutOlymp  = errwrap.Error("olympiad stage can't be set if olympiad is not set")
+	WarnStageNotSet       = errwrap.Warning("stage should be set as the olympiad is set")
 	WarnUnknownOlympStage = errwrap.Warning("stage should be one of [" + strings.Join(OlympStages, ", ") + "]")
 	WarnNonTraceableTask  = errwrap.Warning("task origin can't be traced back to olympiad, organization, or author")
 	ErrOrgAbbrevInvalid   = errwrap.Error(fmt.Sprintf("org must be uppercase letters/digits, max %d chars", MaxAbbrevLen))
@@ -186,8 +192,11 @@ func (o *Origin) Validate() (err error) {
 	if len(o.Olympiad) > MaxAbbrevLen || !isUpperOrDigits(o.Olympiad) {
 		err = errors.Join(err, errwrap.Trace(ErrOlympAbbrevInvalid))
 	}
-	if (o.Olympiad != "") != (o.OlyStage != "") {
-		err = errors.Join(err, errwrap.Trace(ErrStageIffOlympiad))
+	if o.Olympiad == "" && o.OlyStage != "" {
+		err = errors.Join(err, errwrap.Trace(ErrStageWithoutOlymp))
+	}
+	if o.Olympiad != "" && o.OlyStage == "" {
+		err = errors.Join(err, errwrap.Trace(WarnStageNotSet))
 	}
 	if o.OlyStage != "" {
 		if !slices.Contains(OlympStages, o.OlyStage) {
@@ -449,7 +458,7 @@ func (s *Scoring) validateTestSumT(noOfTests int) error {
 	return nil
 }
 
-func (s *Scoring) validateMinGroupsT(subtasks []Subtask) error {
+func (s *Scoring) validateMinGroupsT(noOfTests int, subtasks []Subtask) error {
 	hasGroups := len(s.Groups) > 0
 	if !hasGroups {
 		return errwrap.Error("test groups required for min-groups scoring")
@@ -463,6 +472,43 @@ func (s *Scoring) validateMinGroupsT(subtasks []Subtask) error {
 	if err := s.validateGroupPointSum(); err != nil {
 		return err
 	}
+	if err := s.validateGroupTestsOkay(noOfTests); err != nil {
+		return err
+	}
+	return nil
+}
+
+var ErrGroupTestIdxOutOfRange = errwrap.Error("tg test idx out of range")
+var WarnGroupTestIdxBadOrdering = errwrap.Warning("tg test idx should be in ascending order")
+var ErrGroupTestIdxOverlapping = errwrap.Error("tg test idx overlapping")
+
+func (s *Scoring) validateGroupTestsOkay(noOfTests int) error {
+	for _, group := range s.Groups {
+		if group.Range[0] < 1 || group.Range[1] > noOfTests {
+			return errwrap.Wrap(fmt.Sprintf("tg test idx %d-%d out of range (1-%d)", group.Range[0], group.Range[1], noOfTests), ErrGroupTestIdxOutOfRange)
+		}
+	}
+
+	for i, group1 := range s.Groups {
+		for j, group2 := range s.Groups {
+			if i == j {
+				continue
+			}
+			if group1.Range[0] <= group2.Range[1] && group2.Range[0] <= group1.Range[1] {
+				return errwrap.Trace(ErrGroupTestIdxOverlapping)
+			}
+		}
+	}
+
+	for i, group := range s.Groups {
+		if i > 0 {
+			prevGroup := s.Groups[i-1]
+			if group.Range[0] < prevGroup.Range[0] {
+				return errwrap.Trace(WarnGroupTestIdxBadOrdering)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -526,7 +572,7 @@ func (s *Scoring) Validate(noOfTests int, subtasksIfAny []Subtask) error {
 		return s.validateTestSumT(noOfTests)
 	}
 	if s.ScoringT == "min-groups" {
-		return s.validateMinGroupsT(subtasksIfAny)
+		return s.validateMinGroupsT(noOfTests, subtasksIfAny)
 	}
 	return errwrap.Error(fmt.Sprintf("invalid scoring type - %s", s.ScoringT))
 }

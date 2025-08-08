@@ -15,10 +15,8 @@ import (
 )
 
 func main() {
-	w := os.Stderr
-
 	slog.SetDefault(slog.New(
-		tint.NewHandler(w, &tint.Options{
+		tint.NewHandler(os.Stderr, &tint.Options{
 			Level: slog.LevelInfo,
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 				if a.Key == slog.TimeKey && len(groups) == 0 {
@@ -45,7 +43,12 @@ func main() {
 			err := transform(src, dst, format)
 			if err != nil {
 				slog.Error("transform task failed", "error", err)
-				os.Exit(1)
+				// traced := errwrap.TracedError{}
+				// if errors.As(err, &traced) {
+				// 	fmt.Fprintln(os.Stderr, "trace:")
+				// 	fmt.Fprintln(os.Stderr, traced.Trace())
+				// }
+				// os.Exit(1)
 			}
 		},
 	}
@@ -67,7 +70,7 @@ func main() {
 }
 
 func transform(src string, dst string, format string) error {
-	slog.Info("start transform", "src", src, "dst", dst, "format", format)
+	slog.Info("transform", "src", src, "dst", dst, "format", format)
 
 	var task taskfs.Task
 	var err error
@@ -84,15 +87,23 @@ func transform(src string, dst string, format string) error {
 		return errwrap.Wrap("parsing task in transform cmd", err)
 	}
 
+	if err := task.Validate(); err != nil {
+		if errwrap.IsCritical(err) {
+			msg := "validate task parsed"
+			return errwrap.Wrap(msg, err)
+		} else {
+			slog.Warn("validation warnings", "error", err)
+		}
+	}
+
 	path := filepath.Join(dst, task.ShortID)
-	fmt.Printf("Creating task directory: %s\n", path)
+	slog.Info("task parsed; write task dir", "path", path)
 
 	err = taskfs.Write(task, path)
 	if err != nil {
-		msg := fmt.Sprintf("error writing task to %s", path)
+		msg := fmt.Sprintf("write task to %s", path)
 		return errwrap.Wrap(msg, err)
 	}
-	fmt.Println("Stored transformed task")
 
 	return nil
 }

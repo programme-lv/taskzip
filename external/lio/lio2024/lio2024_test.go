@@ -11,6 +11,8 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	task, err := lio2024.ParseLio2024TaskDir("testdata/kp")
 	require.NoError(t, err)
 
+	require.NoError(t, task.Validate())
+
 	// basic info
 	require.Equal(t, "kp", task.ShortID)
 	require.Equal(t, "Kvadrātveida putekļsūcējs", task.FullName["lv"])
@@ -51,13 +53,19 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	require.Equal(t, 1, noOfSubtasksWithVisibleInput)
 	require.Len(t, task.Statement.Examples, 1)
 	require.Len(t, task.Statement.Images, 3)
+	subtasks := task.Statement.Subtasks
+	require.Len(t, subtasks, 4)
+	require.Equal(t, 3, subtasks[0].Points)
+	require.Equal(t, 48, subtasks[1].Points)
+	require.Equal(t, 28, subtasks[2].Points)
+	require.Equal(t, 21, subtasks[3].Points)
 
 	// readme
+	require.Contains(t, task.ReadMe, "- [ ] specify the year & stage of the olympiad in task.toml")
+	require.Contains(t, task.ReadMe, "- [ ] paste descriptive note of the olympiad in task.toml")
 	require.Contains(t, task.ReadMe, "- [ ] port statement from .typ to .md in statement dir")
 	require.Contains(t, task.ReadMe, "- [ ] subtask descriptions from .typ to task.toml")
 	require.Contains(t, task.ReadMe, "- [ ] example notes from .typ to .md in example dir")
-	require.Contains(t, task.ReadMe, "- [ ] specify the year & stage of the olympiad in task.toml")
-	require.Contains(t, task.ReadMe, "- [ ] add detailed note of the olympiad in task.toml")
 	require.Contains(t, task.ReadMe, "- [ ] should list the authors in origin in task.toml")
 	require.Contains(t, task.ReadMe, "- [ ] determine difficulty based on # of ACs in contest")
 
@@ -72,6 +80,13 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 
 	// archive
 	require.Greater(t, len(task.Archive.Files), 20)
+
+	// scoring
+	require.Equal(t, 100, task.Scoring.TotalP)
+	groups := task.Scoring.Groups
+	require.Len(t, groups, 13)
+
+	// TODO: validator
 }
 
 func TestParsingLio2024TaskWithAChecker(t *testing.T) {
