@@ -135,6 +135,8 @@ func (dir *TaskDirReader) readAllPathsInDir() error {
 	return nil
 }
 
+var ErrExpectedFileMissing = etrace.NewError("expected file is missing")
+
 func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 	joined := filepath.Join(dir.dirAbsPath, relPath)
 	clean := filepath.Clean(joined)
@@ -152,7 +154,7 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 
 	bytes, err := os.ReadFile(clean)
 	if err != nil {
-		return nil, etrace.Trace(err)
+		return nil, etrace.Trace(ErrExpectedFileMissing.WithCause(err))
 	}
 	dir.readPaths[filePathRel] = true
 	return bytes, nil
@@ -191,9 +193,14 @@ func (dir TaskDirReader) Toml() (TaskToml, error) {
 	return taskToml, nil
 }
 
+var ErrCheckerMissing = etrace.NewError("checker.cpp is missing")
+
 func (dir TaskDirReader) Checker() (string, error) {
-	path := "testlib/checker.cpp"
+	path := "checker.cpp"
 	content, err := dir.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", etrace.Trace(ErrCheckerMissing.WithCause(err))
+	}
 	if err != nil {
 		return "", etrace.Trace(err)
 	}
@@ -201,7 +208,7 @@ func (dir TaskDirReader) Checker() (string, error) {
 }
 
 func (dir TaskDirReader) Interactor() (string, error) {
-	path := "testlib/interactor.cpp"
+	path := "interactor.cpp"
 	content, err := dir.ReadFile(path)
 	if err != nil {
 		return "", etrace.Trace(err)
@@ -252,6 +259,8 @@ func (dir TaskDirReader) Tests() ([]Test, error) {
 	return tests, nil
 }
 
+var ErrCheckerEmpty = etrace.NewError("checker.cpp is empty")
+
 func (dir TaskDirReader) Testing() (Testing, error) {
 	taskToml, err := dir.Toml()
 	if err != nil {
@@ -267,12 +276,12 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 	}
 	if taskToml.Testing.Type == "checker" {
 		checker, err := dir.Checker()
+		msg := "testing type in task.toml is checker"
 		if err != nil {
-			return Testing{}, etrace.Trace(err)
+			return Testing{}, etrace.Wrap(msg, err)
 		}
 		if checker == "" {
-			msg := "checker.cpp is empty"
-			return Testing{}, etrace.NewError(msg)
+			return t, etrace.Wrap(msg, ErrCheckerEmpty)
 		}
 		t.Checker = checker
 	}
@@ -810,38 +819,84 @@ func (dir TaskDirReader) Archive() (Archive, error) {
 	return archive, nil
 }
 
-func (dir TaskDirReader) Task() (task Task, err error) {
+func (dir TaskDirReader) Task() (task Task, errs error) {
+	var err error
 	var taskToml TaskToml
-	if taskToml, err = dir.Toml(); err != nil {
-		return
+	taskToml, err = dir.Toml()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
+
 	task.ShortID = taskToml.Id
 	task.FullName = taskToml.Name
 
-	if task.Testing, err = dir.Testing(); err != nil {
-		return
+	task.Testing, err = dir.Testing()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.ReadMe, err = dir.Readme(); err != nil {
-		return
+
+	task.ReadMe, err = dir.Readme()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.Origin, err = dir.Origin(); err != nil {
-		return
+
+	task.Origin, err = dir.Origin()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.Metadata, err = dir.Metadata(); err != nil {
-		return
+
+	task.Metadata, err = dir.Metadata()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.Solutions, err = dir.Solutions(); err != nil {
-		return
+
+	task.Solutions, err = dir.Solutions()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.Statement, err = dir.Statement(); err != nil {
-		return
+
+	task.Statement, err = dir.Statement()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.Scoring, err = dir.Scoring(len(task.Testing.Tests), task.Statement.Subtasks); err != nil {
-		return
+
+	task.Scoring, err = dir.Scoring(len(task.Testing.Tests), task.Statement.Subtasks)
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
-	if task.Archive, err = dir.Archive(); err != nil {
-		return
+
+	task.Archive, err = dir.Archive()
+	if err != nil {
+		if etrace.IsCritical(err) {
+			return task, err
+		}
+		errs = errors.Join(errs, etrace.Trace(err))
 	}
+
 	return
 }
 

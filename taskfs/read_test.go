@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/programme-lv/task-zip/common/etrace"
 	"github.com/programme-lv/task-zip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 
 func getTestTask(t *testing.T) *taskfs.Task {
 	task, err := taskfs.Read("testdata/kvadrputekl")
+	etrace.PrintDebug(err)
 	require.NoError(t, err)
 	return &task
 }

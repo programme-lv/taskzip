@@ -73,6 +73,7 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	require.Contains(t, task.ReadMe, "- [ ] example notes from .typ to .md in example dir")
 	require.Contains(t, task.ReadMe, "- [ ] should list the authors in origin in task.toml")
 	require.Contains(t, task.ReadMe, "- [ ] determine difficulty based on # of ACs in contest")
+	require.Contains(t, task.ReadMe, "- [ ] specify which subtasks should each model solution solve")
 
 	// solutions
 	require.Len(t, task.Solutions, 3)

@@ -109,7 +109,7 @@ func transform(src string, dst string, format string) error {
 
 func promptEraseExistingDir(dirPath string) (bool, error) {
 	fmt.Printf("WARN:\tdest dir %s already exists\n", dirPath)
-	fmt.Print("ASK:\terase and continue? [y/N]: ")
+	fmt.Print("ASK:\terase it recursively and continue? [y/N]: ")
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {

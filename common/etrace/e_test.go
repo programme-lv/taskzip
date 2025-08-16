@@ -22,7 +22,7 @@ func TestWrap_NonEtrace(t *testing.T) {
 	assert.True(t, errors.Is(e, base))
 	assert.Equal(t, base, errors.Unwrap(e))
 	dbg := e.Debug()
-	assert.Contains(t, dbg, "stack trace:")
+	assert.Contains(t, dbg, "trace:")
 	assert.Contains(t, dbg, "cause:")
 	assert.Contains(t, dbg, "ctx")
 	assert.Contains(t, dbg, "boom")
@@ -42,7 +42,7 @@ func TestTrace_NonEtrace(t *testing.T) {
 	assert.True(t, errors.Is(e, base))
 	assert.Equal(t, base, errors.Unwrap(e))
 	dbg := e.Debug()
-	assert.Contains(t, dbg, "stack trace:")
+	assert.Contains(t, dbg, "trace:")
 	assert.Contains(t, dbg, "cause:")
 	assert.Contains(t, dbg, "b")
 }

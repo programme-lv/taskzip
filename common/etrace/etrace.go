@@ -34,6 +34,8 @@ type Error struct {
 	summ  string   // short, user-facing summary
 	cause error    // do not show to the end-user
 	trace []eTrace // [0] is oldest, last is new
+	Fname string   // fname where error is defined
+	Line  int      // line where error is defined
 }
 
 /* ERROR "CODE" REMOVED
@@ -73,7 +75,7 @@ func (e Error) Error() string {
 	return result
 }
 
-func (e Error) Add(cause error) Error {
+func (e Error) WithCause(cause error) Error {
 	e.cause = errors.Join(e.cause, cause)
 	return e
 }
@@ -88,59 +90,88 @@ func (e Error) Debug() string {
 	case Warning:
 		result = fmt.Sprintf("WARN:\t%s", result)
 	}
+	if e.Fname != "" {
+		result += fmt.Sprintf(" (%s:%d)", e.Fname, e.Line)
+	}
 	result += "\n"
-	result += "\t- trace:\n"
-	numTraceEntries := len(e.trace)
-	numDigits := len(fmt.Sprintf("%d", numTraceEntries))
-	for i := len(e.trace) - 1; i >= 0; i-- {
-		t := e.trace[i]
-		lineNum := len(e.trace) - i
-		if t.WrapM == "" {
-			result += fmt.Sprintf(
-				"\t\t%*d. %s:%d\n",
-				numDigits, lineNum, t.Fname, t.Line)
-			continue
+	if len(e.trace) > 0 {
+		numTraceEntries := len(e.trace)
+		if numTraceEntries == 1 {
+			t := e.trace[0]
+			if t.WrapM == "" {
+				result += fmt.Sprintf("\t- trace: %s:%d\n", t.Fname, t.Line)
+			} else {
+				result += fmt.Sprintf("\t- trace: %s:%d %s\n", t.Fname, t.Line, t.WrapM)
+			}
+		} else {
+			result += "\t- trace:\n"
+			numDigits := len(fmt.Sprintf("%d", numTraceEntries))
+			for i := len(e.trace) - 1; i >= 0; i-- {
+				t := e.trace[i]
+				lineNum := len(e.trace) - i
+				if t.WrapM == "" {
+					result += fmt.Sprintf(
+						"\t\t%*d. %s:%d\n",
+						numDigits, lineNum, t.Fname, t.Line)
+					continue
+				}
+				result += fmt.Sprintf(
+					"\t\t%*d. %s:%d %s\n",
+					numDigits, lineNum, t.Fname, t.Line, t.WrapM)
+			}
 		}
-		result += fmt.Sprintf(
-			"\t\t%*d. %s:%d %s\n",
-			numDigits, lineNum, t.Fname, t.Line, t.WrapM)
 	}
 	if e.cause != nil {
-		result += "\t- cause:\n"
-		causeLines := strings.Split(e.cause.Error(), "\n")
-		for _, line := range causeLines {
-			result += "\t\t" + line + "\n"
+		result += "\t- cause:"
+		debugStr := GetDebugStr(e.cause)
+		debugStr = strings.TrimPrefix(debugStr, "ERROR:")
+		debugStr = strings.TrimPrefix(debugStr, "WARN:")
+		if len(strings.Split(debugStr, "\n")) > 1 {
+			debugStr = prefixWithTabs(debugStr)
+			result += fmt.Sprintf("\n%s", debugStr)
+		} else {
+			result += fmt.Sprintf(" %s\n", debugStr)
 		}
-		result = strings.TrimSuffix(result, "\n")
 	}
 	return result
 }
 
 func PrintDebug(err error) {
+	fmt.Println(GetDebugStr(err))
+}
+
+func prefixWithTabs(str string) string {
+	lines := strings.Split(str, "\n")
+	for i, line := range lines {
+		lines[i] = "\t" + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func GetDebugStr(err error) string {
 	if err == nil {
-		return
+		return ""
 	}
 
-	// Check if error has Unwrap() []error method
-	type unwrapper interface {
-		Unwrap() []error
-	}
-
-	if u, ok := err.(unwrapper); ok {
+	if u, ok := err.(interface{ Unwrap() []error }); ok {
 		errs := u.Unwrap()
+		result := ""
 		for _, e := range errs {
-			PrintDebug(e)
+			result += GetDebugStr(e)
 		}
-		return
+		return result
 	}
 
 	var etraceErr Error
 	if errors.As(err, &etraceErr) {
-		fmt.Println(etraceErr.Debug())
-		return
+		return etraceErr.Debug()
 	}
 
-	fmt.Println(err.Error())
+	if u, ok := err.(interface{ Unwrap() error }); ok {
+		return GetDebugStr(u.Unwrap())
+	}
+
+	return err.Error()
 }
 
 func (e Error) Unwrap() error {
@@ -171,23 +202,32 @@ func (e Error) Severity() Severity {
 // Define new errors in global scope to avoid
 // unexpected runtime panics (that may be added).
 func New(lvl Severity, msg string) Error {
+	_, file, line, _ := runtime.Caller(1)
 	return Error{
 		level: lvl,
 		summ:  msg,
+		Fname: file,
+		Line:  line,
 	}
 }
 
 func NewWarning(msg string) Error {
+	_, file, line, _ := runtime.Caller(1)
 	return Error{
 		level: Warning,
 		summ:  msg,
+		Fname: file,
+		Line:  line,
 	}
 }
 
 func NewError(msg string) Error {
+	_, file, line, _ := runtime.Caller(1)
 	return Error{
 		level: Critical,
 		summ:  msg,
+		Fname: file,
+		Line:  line,
 	}
 }
 

@@ -25,7 +25,7 @@ func Write(task Task, dirPath string) error {
 
 	if doesDirExist(dirAbsPath) {
 		cause := fmt.Errorf("dir %s already exists", dirAbsPath)
-		return etrace.Trace(ErrDstDirExists.Add(cause))
+		return etrace.Trace(ErrDstDirExists.WithCause(cause))
 	}
 
 	parentDir := filepath.Dir(dirAbsPath)
@@ -178,20 +178,15 @@ func (w TaskWriter) TaskToml() error {
 }
 
 func (w TaskWriter) Testlib() error {
-	err := w.CreateDir("testlib")
-	if err != nil {
-		return etrace.Trace(err)
-	}
-
 	if w.task.Testing.Checker != "" {
-		err := w.WriteFile("testlib/checker.cpp", []byte(w.task.Testing.Checker))
+		err := w.WriteFile("checker.cpp", []byte(w.task.Testing.Checker))
 		if err != nil {
 			return etrace.Trace(err)
 		}
 	}
 
 	if w.task.Testing.Interactor != "" {
-		err := w.WriteFile("testlib/interactor.cpp", []byte(w.task.Testing.Interactor))
+		err := w.WriteFile("interactor.cpp", []byte(w.task.Testing.Interactor))
 		if err != nil {
 			return etrace.Trace(err)
 		}
@@ -264,10 +259,12 @@ func (w TaskWriter) Examples() error {
 		for lang, note := range example.MdNote {
 			mdNoteContent += fmt.Sprintf("%s\n---\n%s\n", lang, note)
 		}
-		err = w.WriteFile(notePath, []byte(mdNoteContent))
-		if err != nil {
-			msg := fmt.Sprintf("write example %d note", i)
-			return etrace.Wrap(msg, err)
+		if mdNoteContent != "" {
+			err = w.WriteFile(notePath, []byte(mdNoteContent))
+			if err != nil {
+				msg := fmt.Sprintf("write example %d note", i)
+				return etrace.Wrap(msg, err)
+			}
 		}
 	}
 	return nil

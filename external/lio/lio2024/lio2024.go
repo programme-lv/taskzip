@@ -112,6 +112,7 @@ func base(parsedYaml ParsedLio2024Yaml) taskfs.Task {
 - [ ] example notes from .typ to .md in example dir
 - [ ] should list the authors in origin in task.toml
 - [ ] determine difficulty based on # of ACs in contest
+- [ ] specify which subtasks should each model solution solve
 `
 
 	return task
