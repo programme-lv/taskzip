@@ -17,9 +17,11 @@ func TestParsingLio2023TaskWithBothACheckerAndAnInteractor(t *testing.T) {
 
 	require.NotNilf(t, task, "task is nil")
 
-	// Checker and Interactor are now in Testing
-	require.NotEmptyf(t, task.Testing.Checker, "task.Testing.Checker is empty")
+	// When both interactor and checker exist, interactor takes precedence
 	require.NotEmptyf(t, task.Testing.Interactor, "task.Testing.Interactor is empty")
+	require.Equal(t, "interactor", task.Testing.TestingT)
+	// Checker should be empty since interactor takes precedence
+	require.Empty(t, task.Testing.Checker)
 
 	require.Len(t, task.Solutions, 13)
 	solutionFilenames := []string{}

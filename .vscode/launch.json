@@ -10,8 +10,8 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/main.go",
-            "args": ["transform", "-s", "/home/kp/progr/proglv/tasks/workspace/3_valsts/tramvaji", "-d", "/home/kp/progr/proglv/github/task-zip", "-f", "lio2024"]
+            // "program": "${workspaceFolder}/main.go",
+            // "args": ["transform", "-s", "/home/kp/progr/proglv/tasks/workspace/3_valsts/tramvaji", "-d", "/home/kp/progr/proglv/github/task-zip", "-f", "lio2024"]
         }
     ]
 }

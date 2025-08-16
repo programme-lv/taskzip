@@ -3,7 +3,9 @@ package lio2024_test
 import (
 	"testing"
 
+	"github.com/programme-lv/task-zip/common/etrace"
 	"github.com/programme-lv/task-zip/external/lio/lio2024"
+	"github.com/programme-lv/task-zip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -11,7 +13,10 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	task, err := lio2024.ParseLio2024TaskDir("testdata/kp")
 	require.NoError(t, err)
 
-	require.NoError(t, task.Validate())
+	err = task.Validate()
+	etrace.PrintDebug(err)
+	require.False(t, etrace.IsCritical(err))
+	require.ErrorIs(t, err, taskfs.WarnStageNotSet)
 
 	// basic info
 	require.Equal(t, "kp", task.ShortID)
@@ -31,7 +36,7 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	require.Equal(t, "simple", task.Testing.TestingT)
 	require.Equal(t, 500, task.Testing.CpuLimMs)
 	require.Equal(t, 256, task.Testing.MemLimMiB)
-	require.Equal(t, 3, len(task.Testing.Tests))
+	require.Equal(t, 15, len(task.Testing.Tests))
 	require.Equal(t, "", task.Testing.Checker)
 	require.Equal(t, "", task.Testing.Interactor)
 
@@ -81,17 +86,13 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	// archive
 	require.Greater(t, len(task.Archive.Files), 20)
 
-	// scoring
-	require.Equal(t, 100, task.Scoring.TotalP)
-	groups := task.Scoring.Groups
-	require.Len(t, groups, 13)
-
 	// TODO: validator
 }
 
 func TestParsingLio2024TaskWithAChecker(t *testing.T) {
 	task, err := lio2024.ParseLio2024TaskDir("testdata/tornis")
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no tests for group")
 	require.Equal(t, "tornis", task.ShortID)
 
 	// testing

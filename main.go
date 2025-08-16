@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lmittmann/tint"
-	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/common/etrace"
 	"github.com/programme-lv/task-zip/external/lio/lio2023"
 	"github.com/programme-lv/task-zip/external/lio/lio2024"
 	"github.com/programme-lv/task-zip/taskfs"
@@ -43,11 +43,7 @@ func main() {
 			err := transform(src, dst, format)
 			if err != nil {
 				slog.Error("transform task failed", "error", err)
-				// traced := errwrap.TracedError{}
-				// if errors.As(err, &traced) {
-				// 	fmt.Fprintln(os.Stderr, "trace:")
-				// 	fmt.Fprintln(os.Stderr, traced.Trace())
-				// }
+
 				// os.Exit(1)
 			}
 		},
@@ -81,18 +77,16 @@ func transform(src string, dst string, format string) error {
 		task, err = lio2024.ParseLio2024TaskDir(src)
 	default:
 		msg := fmt.Sprintf("unsupported task format: %s", format)
-		return errwrap.Error(msg)
+		return etrace.NewError(msg)
 	}
 	if err != nil {
-		return errwrap.Wrap("parsing task in transform cmd", err)
+		return etrace.Wrap("parsing task in transform cmd", err)
 	}
 
 	if err := task.Validate(); err != nil {
-		if errwrap.IsCritical(err) {
+		if etrace.IsCritical(err) {
 			msg := "validate task parsed"
-			return errwrap.Wrap(msg, err)
-		} else {
-			slog.Warn("validation warnings", "error", err)
+			return etrace.Wrap(msg, err)
 		}
 	}
 
@@ -102,7 +96,7 @@ func transform(src string, dst string, format string) error {
 	err = taskfs.Write(task, path)
 	if err != nil {
 		msg := fmt.Sprintf("write task to %s", path)
-		return errwrap.Wrap(msg, err)
+		return etrace.Wrap(msg, err)
 	}
 
 	return nil

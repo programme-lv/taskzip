@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/common/etrace"
 	"github.com/programme-lv/task-zip/external/lio"
 	"github.com/programme-lv/task-zip/taskfs"
 )
@@ -21,14 +21,14 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
-			return taskfs.Task{}, errwrap.Error(msg)
+			return taskfs.Task{}, etrace.NewError(msg)
 		}
-		return taskfs.Task{}, errwrap.Trace(err)
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 
 	taskYaml, err := ParseLio2023Yaml(taskYamlContent)
 	if err != nil {
-		return taskfs.Task{}, errwrap.Trace(err)
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 
 	task := taskfs.Task{}
@@ -72,14 +72,14 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	if _, err := os.Stat(interactorPath); !errors.Is(err, fs.ErrNotExist) {
 		content, err := os.ReadFile(interactorPath)
 		if err != nil {
-			return taskfs.Task{}, errwrap.Trace(err)
+			return taskfs.Task{}, etrace.Trace(err)
 		}
 		task.Testing.Interactor = string(content)
 		task.Testing.TestingT = "interactor"
 	} else if _, err := os.Stat(checkerPath); !errors.Is(err, fs.ErrNotExist) {
 		content, err := os.ReadFile(checkerPath)
 		if err != nil {
-			return taskfs.Task{}, errwrap.Trace(err)
+			return taskfs.Task{}, etrace.Trace(err)
 		}
 		task.Testing.Checker = string(content)
 		task.Testing.TestingT = "checker"
@@ -90,7 +90,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		// loop through all files in risin using filepath.Walk
 		err = filepath.Walk(solutionsPath, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 			if info.IsDir() {
 				return nil
@@ -98,12 +98,12 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 
 			relativePath, err := filepath.Rel(solutionsPath, path)
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 
 			content, err := os.ReadFile(path)
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 
 			task.Solutions = append(task.Solutions, taskfs.Solution{
@@ -116,7 +116,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		})
 
 		if err != nil {
-			return taskfs.Task{}, errwrap.Trace(err)
+			return taskfs.Task{}, etrace.Trace(err)
 		}
 	}
 
@@ -126,9 +126,9 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		// Check if it's a missing file error
 		if errors.Is(err, os.ErrNotExist) {
 			msg := fmt.Sprintf("test archive file not found: %s", taskYaml.TestArchive)
-			return taskfs.Task{}, errwrap.Error(msg)
+			return taskfs.Task{}, etrace.NewError(msg)
 		}
-		return taskfs.Task{}, errwrap.Trace(err)
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 
 	testGroupTestIds := make(map[int][]int)
@@ -159,9 +159,9 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	punktiTxtContent, err := os.ReadFile(punktiTxtPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return taskfs.Task{}, errwrap.Error("punkti.txt file not found")
+			return taskfs.Task{}, etrace.NewError("punkti.txt file not found")
 		}
-		return taskfs.Task{}, errwrap.Trace(err)
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 	// split by "\n"
 	parts := strings.Split(string(punktiTxtContent), "\n")
@@ -175,24 +175,24 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 
 		if len(testInterval) != 2 {
 			msg := fmt.Sprintf("invalid test interval format: %s", line)
-			return taskfs.Task{}, errwrap.Error(msg)
+			return taskfs.Task{}, etrace.NewError(msg)
 		}
 
 		start, err := strconv.Atoi(testInterval[0])
 		if err != nil {
 			msg := fmt.Sprintf("invalid start number in test interval: %s", testInterval[0])
-			return taskfs.Task{}, errwrap.Error(msg)
+			return taskfs.Task{}, etrace.NewError(msg)
 		}
 		end, err := strconv.Atoi(testInterval[1])
 		if err != nil {
 			msg := fmt.Sprintf("invalid end number in test interval: %s", testInterval[1])
-			return taskfs.Task{}, errwrap.Error(msg)
+			return taskfs.Task{}, etrace.NewError(msg)
 		}
 
 		points, err := strconv.Atoi(parts[1])
 		if err != nil {
 			msg := fmt.Sprintf("invalid points value: %s", parts[1])
-			return taskfs.Task{}, errwrap.Error(msg)
+			return taskfs.Task{}, etrace.NewError(msg)
 		}
 
 		for i := start; i <= end; i++ {
@@ -236,24 +236,24 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	// Archive files go in Archive.Files
 	err = filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		if info.IsDir() {
 			return nil
 		}
 		relativePath, err := filepath.Rel(dirPath, path)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		relativePath = "./" + relativePath
 		for _, prefix := range excludePrefixFromArchive {
 			prefixAbs, err := filepath.Abs(prefix)
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 			pathAbs, err := filepath.Abs(path)
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 			if pathAbs == prefixAbs {
 				return nil
@@ -264,7 +264,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		// Archive structure changed - it's now Archive.Files
 		task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
@@ -274,7 +274,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 		return nil
 	})
 	if err != nil {
-		return taskfs.Task{}, errwrap.Trace(err)
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 
 	// Origin structure changed

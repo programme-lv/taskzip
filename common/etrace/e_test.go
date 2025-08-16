@@ -51,3 +51,49 @@ func TestIs_DelegatesToCause(t *testing.T) {
 	e := etrace.Wrap("w", io.EOF)
 	assert.True(t, errors.Is(e, io.EOF))
 }
+
+func TestIsCritical_NilError(t *testing.T) {
+	assert.False(t, etrace.IsCritical(nil))
+}
+
+func TestIsCritical_SingleWarning(t *testing.T) {
+	w := etrace.NewWarning("warning message")
+	assert.False(t, etrace.IsCritical(w))
+}
+
+func TestIsCritical_SingleCritical(t *testing.T) {
+	e := etrace.NewError("critical error")
+	assert.True(t, etrace.IsCritical(e))
+}
+
+func TestIsCritical_NonEtraceError(t *testing.T) {
+	err := errors.New("regular error")
+	assert.True(t, etrace.IsCritical(err))
+}
+
+func TestIsCritical_JoinedOnlyWarnings(t *testing.T) {
+	w1 := etrace.NewWarning("warning 1")
+	w2 := etrace.NewWarning("warning 2")
+	joined := errors.Join(w1, w2)
+	assert.False(t, etrace.IsCritical(joined))
+}
+
+func TestIsCritical_JoinedWithCritical(t *testing.T) {
+	w1 := etrace.NewWarning("warning 1")
+	e1 := etrace.NewError("critical error")
+	w2 := etrace.NewWarning("warning 2")
+	joined := errors.Join(w1, e1, w2)
+	assert.True(t, etrace.IsCritical(joined))
+}
+
+func TestIsCritical_WrappedWarning(t *testing.T) {
+	w := etrace.NewWarning("base warning")
+	wrapped := etrace.Wrap("context", w)
+	assert.False(t, etrace.IsCritical(wrapped))
+}
+
+func TestIsCritical_WrappedCritical(t *testing.T) {
+	e := etrace.NewError("base error")
+	wrapped := etrace.Wrap("context", e)
+	assert.True(t, etrace.IsCritical(wrapped))
+}

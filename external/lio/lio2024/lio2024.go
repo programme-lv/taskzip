@@ -10,15 +10,18 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/programme-lv/task-zip/common/errwrap"
+	"github.com/programme-lv/task-zip/common/etrace"
+	"github.com/programme-lv/task-zip/common/fn"
 	"github.com/programme-lv/task-zip/external/lio"
 	"github.com/programme-lv/task-zip/taskfs"
 )
 
+var ErrTestArchiveNotFound = etrace.NewError("test archive file not found")
+
 func ParseLio2024TaskDir(dirPath string) (taskfs.Task, error) {
 	parsedYaml, err := readYaml(dirPath)
 	if err != nil {
-		return taskfs.Task{}, errwrap.Trace(err)
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 
 	task := base(parsedYaml)
@@ -26,27 +29,37 @@ func ParseLio2024TaskDir(dirPath string) (taskfs.Task, error) {
 	var errs []error
 
 	if err := testing(&task, dirPath, parsedYaml); err != nil {
-		errs = append(errs, errwrap.Trace(err))
+		errs = append(errs, etrace.Trace(err))
 	}
 
-	if err := tests(&task, dirPath, parsedYaml); err != nil {
-		errs = append(errs, errwrap.Trace(err))
+	testZipRelPath := parsedYaml.TestZipPathRelToYaml
+	testZipAbsPath := filepath.Join(dirPath, testZipRelPath)
+	lioTests, err := lio.ReadLioTestsFromZip(testZipAbsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return taskfs.Task{}, etrace.Trace(ErrTestArchiveNotFound)
+		}
+		return taskfs.Task{}, etrace.Trace(err)
 	}
 
-	if err := scoring(&task, parsedYaml); err != nil {
-		errs = append(errs, errwrap.Trace(err))
+	if err := tests(&task, lioTests, dirPath, parsedYaml); err != nil {
+		errs = append(errs, etrace.Trace(err))
+	}
+
+	if err := scoring(&task, lioTests, parsedYaml); err != nil {
+		errs = append(errs, etrace.Trace(err))
 	}
 
 	if err := statement(&task, dirPath, task.Testing.TestingT); err != nil {
-		errs = append(errs, errwrap.Trace(err))
+		errs = append(errs, etrace.Trace(err))
 	}
 
 	if err := solutions(&task, dirPath); err != nil {
-		errs = append(errs, errwrap.Trace(err))
+		errs = append(errs, etrace.Trace(err))
 	}
 
 	if err := archive(&task, dirPath, parsedYaml); err != nil {
-		errs = append(errs, errwrap.Trace(err))
+		errs = append(errs, etrace.Trace(err))
 	}
 
 	return task, errors.Join(errs...)
@@ -59,14 +72,14 @@ func readYaml(dirPath string) (ParsedLio2024Yaml, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			msg := fmt.Sprintf("task.yaml file not found: %s", taskYamlPath)
-			return ParsedLio2024Yaml{}, errwrap.Error(msg)
+			return ParsedLio2024Yaml{}, etrace.NewError(msg)
 		}
-		return ParsedLio2024Yaml{}, errwrap.Trace(err)
+		return ParsedLio2024Yaml{}, etrace.Trace(err)
 	}
 
 	parsedYaml, err := ParseLio2024Yaml(taskYamlContent)
 	if err != nil {
-		return ParsedLio2024Yaml{}, errwrap.Trace(err)
+		return ParsedLio2024Yaml{}, etrace.Trace(err)
 	}
 
 	return parsedYaml, nil
@@ -110,7 +123,7 @@ func testing(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 		checkerPath := filepath.Join(dirPath, relativePath)
 		checkerBytes, err := os.ReadFile(checkerPath)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		task.Testing.Checker = string(checkerBytes)
 		task.Testing.TestingT = "checker"
@@ -121,7 +134,7 @@ func testing(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 		interactorPath := filepath.Join(dirPath, relativePath)
 		interactorBytes, err := os.ReadFile(interactorPath)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		task.Testing.Interactor = string(interactorBytes)
 		task.Testing.TestingT = "interactor"
@@ -130,26 +143,15 @@ func testing(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 	return nil
 }
 
-func tests(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) error {
-	testZipRelPath := parsedYaml.TestZipPathRelToYaml
-	testZipAbsPath := filepath.Join(dirPath, testZipRelPath)
-	tests, err := lio.ReadLioTestsFromZip(testZipAbsPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			msg := fmt.Sprintf("test archive file not found: %s", testZipRelPath)
-			return errwrap.Error(msg)
+func tests(task *taskfs.Task, lioTests []lio.LioTest, dirPath string, parsedYaml ParsedLio2024Yaml) error {
+	sort.Slice(lioTests, func(i, j int) bool {
+		if lioTests[i].TestGroup == lioTests[j].TestGroup {
+			return lioTests[i].NoInTestGroup < lioTests[j].NoInTestGroup
 		}
-		return errwrap.Trace(err)
-	}
-
-	sort.Slice(tests, func(i, j int) bool {
-		if tests[i].TestGroup == tests[j].TestGroup {
-			return tests[i].NoInTestGroup < tests[j].NoInTestGroup
-		}
-		return tests[i].TestGroup < tests[j].TestGroup
+		return lioTests[i].TestGroup < lioTests[j].TestGroup
 	})
 
-	for _, t := range tests {
+	for _, t := range lioTests {
 		if t.TestGroup == 0 {
 			task.Statement.Examples = append(task.Statement.Examples, taskfs.Example{
 				Input:  string(t.Input),
@@ -167,7 +169,11 @@ func tests(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) erro
 	return nil
 }
 
-func scoring(task *taskfs.Task, parsedYaml ParsedLio2024Yaml) error {
+var ErrSubtaskPointsSumNot100 = etrace.NewError("subtask points do not sum up to 100")
+var ErrNoTestsForGroup = etrace.NewError("no tests for group")
+var ErrGroupTestIdxNotConsecutive = etrace.NewError("test idx in group not consecutive")
+
+func scoring(task *taskfs.Task, lioTests []lio.LioTest, parsedYaml ParsedLio2024Yaml) error {
 	// Set up subtasks based on parsedYaml.SubtaskPoints (skip first 0 entry)
 	for i, points := range parsedYaml.SubtaskPoints {
 		if i == 0 || points == 0 {
@@ -180,13 +186,43 @@ func scoring(task *taskfs.Task, parsedYaml ParsedLio2024Yaml) error {
 		})
 	}
 
+	// build linear test index over non-example tests (1..N)
+	ordered := make([]lio.LioTest, len(lioTests))
+	copy(ordered, lioTests)
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].TestGroup == ordered[j].TestGroup {
+			return ordered[i].NoInTestGroup < ordered[j].NoInTestGroup
+		}
+		return ordered[i].TestGroup < ordered[j].TestGroup
+	})
+	nonExamples := []lio.LioTest{}
+	for _, t := range ordered {
+		if t.TestGroup != 0 {
+			nonExamples = append(nonExamples, t)
+		}
+	}
+
 	for _, g := range parsedYaml.TestGroups {
 		if g.GroupID == 0 {
 			continue // examples
 		}
+		idxs := []int{}
+		for i, t := range nonExamples {
+			if t.TestGroup == g.GroupID {
+				idxs = append(idxs, i+1)
+			}
+		}
+		if len(idxs) == 0 {
+			return etrace.Trace(ErrNoTestsForGroup)
+		}
+		if !fn.AreConsecutive(idxs) {
+			return etrace.Trace(ErrGroupTestIdxNotConsecutive)
+		}
+		rng := [2]int{fn.MinInt(idxs), fn.MaxInt(idxs)}
+
 		task.Scoring.Groups = append(task.Scoring.Groups, taskfs.TestGroup{
 			Points:  g.Points,
-			Range:   [2]int{g.GroupID, g.GroupID},
+			Range:   rng,
 			Public:  g.Public,
 			Subtask: g.Subtask,
 		})
@@ -206,8 +242,8 @@ func scoring(task *taskfs.Task, parsedYaml ParsedLio2024Yaml) error {
 		subtaskTotalPoints += subtask.Points
 	}
 	if subtaskTotalPoints != 100 {
-		msg := fmt.Sprintf("subtask points do not sum up to 100: got %d", subtaskTotalPoints)
-		return errwrap.Error(msg)
+		msg := fmt.Sprintf("got %d", subtaskTotalPoints)
+		return etrace.Wrap(msg, ErrSubtaskPointsSumNot100)
 	}
 
 	return nil
@@ -246,7 +282,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 	if _, err := os.Stat(tekstsDir); !errors.Is(err, fs.ErrNotExist) {
 		err := filepath.Walk(tekstsDir, func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 			if info.IsDir() {
 				return nil
@@ -258,7 +294,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 				strings.HasSuffix(strings.ToLower(path), ".jpeg") {
 				content, err := os.ReadFile(path)
 				if err != nil {
-					return errwrap.Trace(err)
+					return etrace.Trace(err)
 				}
 
 				task.Statement.Images = append(task.Statement.Images, taskfs.Image{
@@ -269,7 +305,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 			return nil
 		})
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 	}
 
@@ -277,7 +313,7 @@ func statement(task *taskfs.Task, dirPath string, testingType string) error {
 	if len(task.Statement.Subtasks) > 0 {
 		hasOutputFalse, err := checkTypFileForOutputFalse(dirPath)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		task.Statement.Subtasks[0].VisInput = hasOutputFalse
 	}
@@ -301,7 +337,7 @@ func checkTypFileForOutputFalse(dirPath string) (bool, error) {
 	})
 
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false, errwrap.Trace(err)
+		return false, etrace.Trace(err)
 	}
 
 	if typFilePath == "" {
@@ -310,7 +346,7 @@ func checkTypFileForOutputFalse(dirPath string) (bool, error) {
 
 	content, err := os.ReadFile(typFilePath)
 	if err != nil {
-		return false, errwrap.Trace(err)
+		return false, etrace.Trace(err)
 	}
 
 	// Check for "output: false" that is not commented out with //
@@ -318,7 +354,7 @@ func checkTypFileForOutputFalse(dirPath string) (bool, error) {
 	pattern := `(?m)^[^/]*output:\s*false`
 	matched, err := regexp.MatchString(pattern, string(content))
 	if err != nil {
-		return false, errwrap.Trace(err)
+		return false, etrace.Trace(err)
 	}
 
 	return matched, nil
@@ -332,7 +368,7 @@ func solutions(task *taskfs.Task, dirPath string) error {
 
 	err := filepath.Walk(solutionsDirPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		if info.IsDir() {
 			return nil
@@ -340,12 +376,12 @@ func solutions(task *taskfs.Task, dirPath string) error {
 
 		relativePath, err := filepath.Rel(solutionsDirPath, path)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 
 		filename := filepath.Base(relativePath)
@@ -369,7 +405,7 @@ func solutions(task *taskfs.Task, dirPath string) error {
 	})
 
 	if err != nil {
-		return errwrap.Trace(err)
+		return etrace.Trace(err)
 	}
 	return nil
 }
@@ -383,7 +419,7 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 
 	err := filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		if info.IsDir() {
 			return nil
@@ -391,18 +427,18 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 
 		relativePath, err := filepath.Rel(dirPath, path)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 		relativePath = "./" + relativePath
 
 		for _, prefix := range excludePrefixFromArchive {
 			prefixAbs, err := filepath.Abs(prefix)
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 			pathAbs, err := filepath.Abs(path)
 			if err != nil {
-				return errwrap.Trace(err)
+				return etrace.Trace(err)
 			}
 			if pathAbs == prefixAbs {
 				return nil
@@ -414,7 +450,7 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return errwrap.Trace(err)
+			return etrace.Trace(err)
 		}
 
 		task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
@@ -425,7 +461,7 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 	})
 
 	if err != nil {
-		return errwrap.Trace(err)
+		return etrace.Trace(err)
 	}
 	return nil
 }

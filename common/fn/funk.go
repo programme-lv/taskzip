@@ -3,6 +3,8 @@ package fn
 // file contains functional programming patterns
 // to shorten the code and improve readability
 
+import "sort"
+
 // Filter drops elems that don't satisfy the predicate
 func Filter[T any](ss []T, test func(T) bool) (ret []T) {
 	for _, s := range ss {
@@ -54,4 +56,48 @@ func Any[T any](ss []T, test func(T) bool) bool {
 		}
 	}
 	return false
+}
+
+// MinInt returns the minimum value in a non-empty int slice
+func MinInt(ss []int) int {
+	if len(ss) == 0 {
+		return 0
+	}
+	min := ss[0]
+	for _, v := range ss[1:] {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+// MaxInt returns the maximum value in a non-empty int slice
+func MaxInt(ss []int) int {
+	if len(ss) == 0 {
+		return 0
+	}
+	max := ss[0]
+	for _, v := range ss[1:] {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+// AreConsecutive reports whether ints form a contiguous ascending sequence
+func AreConsecutive(ss []int) bool {
+	if len(ss) == 0 {
+		return false
+	}
+	tmp := make([]int, len(ss))
+	copy(tmp, ss)
+	sort.Ints(tmp)
+	for i := 1; i < len(tmp); i++ {
+		if tmp[i] != tmp[i-1]+1 {
+			return false
+		}
+	}
+	return true
 }

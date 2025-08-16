@@ -374,7 +374,8 @@ var ErrGroupTestIdxOverlapping = etrace.NewError("tg test idx overlapping")
 func (s *Scoring) validateGroupTestsOkay(noOfTests int) error {
 	for _, group := range s.Groups {
 		if group.Range[0] < 1 || group.Range[1] > noOfTests {
-			return etrace.Wrap(fmt.Sprintf("tg test idx %d-%d out of range (1-%d)", group.Range[0], group.Range[1], noOfTests), ErrGroupTestIdxOutOfRange)
+			msg := fmt.Sprintf("tg test idx %d-%d out of range (1-%d)", group.Range[0], group.Range[1], noOfTests)
+			return etrace.Wrap(msg, ErrGroupTestIdxOutOfRange)
 		}
 	}
 

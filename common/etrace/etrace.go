@@ -76,23 +76,74 @@ func (e Error) Error() string {
 // and error cause. Trace entries are on newlines.
 func (e Error) Debug() string {
 	result := e.summ
+	switch e.level {
+	case Critical:
+		result = fmt.Sprintf("ERROR: %s", result)
+	case Warning:
+		result = fmt.Sprintf("WARN: %s", result)
+	}
 	result += "\n\nstack trace:\n"
 	for _, t := range e.trace {
 		result += fmt.Sprintf(
 			"\t%s:%d: %s\n",
 			t.Fname, t.Line, t.WrapM)
 	}
-	result += "\n\ncause:\n"
-	result += e.cause.Error()
+	if e.cause != nil {
+		result += "\n\ncause:\n"
+		result += e.cause.Error()
+	}
 	return result
 }
 
+func PrintDebug(err error) {
+	if err == nil {
+		return
+	}
+
+	// Check if error has Unwrap() []error method
+	type unwrapper interface {
+		Unwrap() []error
+	}
+
+	if u, ok := err.(unwrapper); ok {
+		errs := u.Unwrap()
+		for _, e := range errs {
+			PrintDebug(e)
+		}
+		return
+	}
+
+	var etraceErr Error
+	if errors.As(err, &etraceErr) {
+		fmt.Println(etraceErr.Debug())
+		return
+	}
+
+	fmt.Println(err.Error())
+}
+
 func (e Error) Unwrap() error {
+	// if len(e.trace) > 0 {
+	// 	e.trace = e.trace[:len(e.trace)-1]
+	// 	return e
+	// }
 	return e.cause
 }
 
 func (e Error) Is(target error) bool {
-	return errors.Is(e.cause, target)
+	if eTraceErr, ok := target.(Error); ok {
+		if eTraceErr.summ == e.summ &&
+			eTraceErr.level == e.level &&
+			eTraceErr.cause == e.cause {
+			return true
+		}
+	}
+	return errors.Is(e.Unwrap(), target)
+}
+
+// Severity returns the severity level of the error
+func (e Error) Severity() Severity {
+	return e.level
 }
 
 // New is a constructor for expected errors.
@@ -171,4 +222,65 @@ func Trace(err error) Error {
 			Line:  line,
 		}},
 	}
+}
+
+// IsCritical returns true if the error contains any critical errors.
+// Returns false if the error is nil or contains only warnings.
+//
+// This function traverses the entire error tree (including errors.Join
+// and wrapped errors) and returns true if any leaf error is either:
+// - An etrace.Error with Critical severity
+// - A non-etrace error (which are considered critical by default)
+//
+// Use this to distinguish between validation warnings that can be
+// ignored and critical errors that should cause operation failure.
+func IsCritical(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check all leaf errors in the error tree
+	for _, leafErr := range getLeafErrors(err) {
+		var etraceErr Error
+		if errors.As(leafErr, &etraceErr) {
+			if etraceErr.Severity() == Critical {
+				return true
+			}
+		} else {
+			// Non-etrace errors are considered critical
+			return true
+		}
+	}
+
+	return false
+}
+
+// getLeafErrors returns all leaf errors from an error tree,
+// unwrapping joined errors and wrapped errors recursively.
+func getLeafErrors(err error) []error {
+	if err == nil {
+		return nil
+	}
+
+	var leafErrors []error
+
+	// Check if error supports multiple unwrapping (errors.Join)
+	if unwrapper, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range unwrapper.Unwrap() {
+			leafErrors = append(leafErrors, getLeafErrors(e)...)
+		}
+		return leafErrors
+	}
+
+	// Check if error supports single unwrapping
+	if unwrapper, ok := err.(interface{ Unwrap() error }); ok {
+		unwrapped := unwrapper.Unwrap()
+		if unwrapped != nil {
+			return getLeafErrors(unwrapped)
+		}
+		// If unwrapped is nil, treat this error as a leaf
+	}
+
+	// This is a leaf error
+	return []error{err}
 }
