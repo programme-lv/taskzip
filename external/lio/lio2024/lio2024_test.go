@@ -14,7 +14,7 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	require.NoError(t, err)
 
 	err = task.Validate()
-	etrace.PrintDebug(err)
+	// etrace.PrintDebug(err)
 	require.False(t, etrace.IsCritical(err))
 	require.ErrorIs(t, err, taskfs.WarnStageNotSet)
 
@@ -86,7 +86,8 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	// archive
 	require.Greater(t, len(task.Archive.Files), 20)
 
-	// TODO: validator
+	require.NotEmpty(t, task.Archive.GetTestlibValidator())
+	require.NotEmpty(t, task.Archive.GetOgStatementPdfs())
 }
 
 func TestParsingLio2024TaskWithAChecker(t *testing.T) {

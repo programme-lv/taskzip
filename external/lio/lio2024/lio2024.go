@@ -463,5 +463,87 @@ func archive(task *taskfs.Task, dirPath string, parsedYaml ParsedLio2024Yaml) er
 	if err != nil {
 		return etrace.Trace(err)
 	}
+
+	if err := addValidatorIfAny(task, dirPath); err != nil {
+		return etrace.Trace(err)
+	}
+	if err := addStatementPdfIfAny(task, dirPath); err != nil {
+		return etrace.Trace(err)
+	}
 	return nil
+}
+
+func addValidatorIfAny(task *taskfs.Task, dirPath string) error {
+	validatorPath := filepath.Join(dirPath, "riki", "validator.cpp")
+	if _, err := os.Stat(validatorPath); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return etrace.Trace(err)
+	}
+
+	content, err := os.ReadFile(validatorPath)
+	if err != nil {
+		return etrace.Trace(err)
+	}
+	task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
+		RelPath: "reserved/validator.cpp",
+		Content: content,
+	})
+	return nil
+}
+
+var ErrMultipleStatementPdfs = etrace.NewError("multiple statement pdfs found")
+
+func addStatementPdfIfAny(task *taskfs.Task, dirPath string) error {
+	tekstsDir := filepath.Join(dirPath, "teksts")
+	if _, err := os.Stat(tekstsDir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return etrace.Trace(err)
+	}
+
+	pdfPaths, err := listPdfPathsUnder(tekstsDir)
+	if err != nil {
+		return etrace.Trace(err)
+	}
+	if len(pdfPaths) == 0 {
+		return nil
+	}
+	if len(pdfPaths) > 1 {
+		return etrace.Trace(ErrMultipleStatementPdfs)
+	}
+
+	content, err := os.ReadFile(pdfPaths[0])
+	if err != nil {
+		return etrace.Trace(err)
+	}
+	appendArchiveFile(task, "reserved/statement/lv.pdf", content)
+	return nil
+}
+
+func listPdfPathsUnder(root string) ([]string, error) {
+	paths := []string{}
+	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return etrace.Trace(err)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(path), ".pdf") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, etrace.Trace(err)
+	}
+	return paths, nil
+}
+
+func appendArchiveFile(task *taskfs.Task, relPath string, content []byte) {
+	task.Archive.Files = append(task.Archive.Files, taskfs.ArchiveFile{
+		RelPath: relPath,
+		Content: content,
+	})
 }
