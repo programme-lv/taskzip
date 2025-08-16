@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/taskfs"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 

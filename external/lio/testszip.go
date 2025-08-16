@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/common/zips"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/zips"
 )
 
 type LioTest struct {

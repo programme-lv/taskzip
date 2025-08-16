@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/programme-lv/task-zip/taskfs"
+	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 

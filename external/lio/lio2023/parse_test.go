@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/programme-lv/task-zip/external/lio/lio2023"
+	"github.com/programme-lv/taskzip/external/lio/lio2023"
 	"github.com/stretchr/testify/require"
 )
 

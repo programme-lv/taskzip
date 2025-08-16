@@ -1,4 +1,4 @@
-module github.com/programme-lv/task-zip
+module github.com/programme-lv/taskzip
 
 go 1.24.5
 

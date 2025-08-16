@@ -3,9 +3,9 @@ package lio2024_test
 import (
 	"testing"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/external/lio/lio2024"
-	"github.com/programme-lv/task-zip/taskfs"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/external/lio/lio2024"
+	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 

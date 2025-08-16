@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/external/lio"
-	"github.com/programme-lv/task-zip/taskfs"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/external/lio"
+	"github.com/programme-lv/taskzip/taskfs"
 )
 
 func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/common/fn"
-	"github.com/programme-lv/task-zip/common/iso639"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/fn"
+	"github.com/programme-lv/taskzip/common/iso639"
 )
 
 // internationalization (language -> text or smth)

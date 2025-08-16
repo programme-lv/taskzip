@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/external/lio/lio2023"
-	"github.com/programme-lv/task-zip/external/lio/lio2024"
-	"github.com/programme-lv/task-zip/taskfs"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/external/lio/lio2023"
+	"github.com/programme-lv/taskzip/external/lio/lio2024"
+	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/spf13/cobra"
 )
 

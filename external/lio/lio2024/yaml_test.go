@@ -3,7 +3,7 @@ package lio2024_test
 import (
 	"testing"
 
-	"github.com/programme-lv/task-zip/external/lio/lio2024"
+	"github.com/programme-lv/taskzip/external/lio/lio2024"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

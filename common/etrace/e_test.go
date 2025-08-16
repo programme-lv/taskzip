@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/programme-lv/task-zip/common/etrace"
+	"github.com/programme-lv/taskzip/common/etrace"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/programme-lv/task-zip/common/etrace"
-	"github.com/programme-lv/task-zip/common/fn"
-	"github.com/programme-lv/task-zip/external/lio"
-	"github.com/programme-lv/task-zip/taskfs"
+	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/fn"
+	"github.com/programme-lv/taskzip/external/lio"
+	"github.com/programme-lv/taskzip/taskfs"
 )
 
 var ErrTestArchiveNotFound = etrace.NewError("test archive file not found")
