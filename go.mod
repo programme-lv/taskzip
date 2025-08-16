@@ -3,7 +3,6 @@ module github.com/programme-lv/task-zip
 go 1.24.5
 
 require (
-	github.com/lmittmann/tint v1.1.2
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
