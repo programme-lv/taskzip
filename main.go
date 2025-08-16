@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/lmittmann/tint"
 	"github.com/programme-lv/task-zip/common/etrace"
 	"github.com/programme-lv/task-zip/external/lio/lio2023"
 	"github.com/programme-lv/task-zip/external/lio/lio2024"
@@ -15,18 +15,6 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(
-		tint.NewHandler(os.Stderr, &tint.Options{
-			Level: slog.LevelInfo,
-			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-				if a.Key == slog.TimeKey && len(groups) == 0 {
-					return slog.Attr{}
-				}
-				return a
-			},
-		}),
-	))
-
 	var rootCmd = &cobra.Command{
 		Use:   "task-zip",
 		Short: "Task .zip archive management CLI tool",
@@ -42,7 +30,7 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			err := transform(src, dst, format)
 			if err != nil {
-				slog.Error("transform task failed", "error", err)
+				etrace.PrintDebug(err)
 
 				// os.Exit(1)
 			}
@@ -66,7 +54,7 @@ func main() {
 }
 
 func transform(src string, dst string, format string) error {
-	slog.Info("transform", "src", src, "dst", dst, "format", format)
+	fmt.Printf("INFO:\trunning transform\n\t- src: %s\n\t- dst: %s\n\t- format: %s\n", src, dst, format)
 
 	var task taskfs.Task
 	var err error
@@ -91,13 +79,47 @@ func transform(src string, dst string, format string) error {
 	}
 
 	path := filepath.Join(dst, task.ShortID)
-	slog.Info("task parsed; write task dir", "path", path)
+
+	if dirExists(path) {
+		ok, err := promptEraseExistingDir(path)
+		if err != nil {
+			return etrace.Wrap("prompt erase", err)
+		}
+		if ok {
+			if err := os.RemoveAll(path); err != nil {
+				return etrace.Wrap("remove dir", err)
+			}
+		}
+	}
 
 	err = taskfs.Write(task, path)
 	if err != nil {
-		msg := fmt.Sprintf("write task to %s", path)
-		return etrace.Wrap(msg, err)
+		return etrace.Wrap("write task", err)
+	}
+
+	fmt.Println("INFO:\tsuccessfully transformed task")
+	readmePath := filepath.Join(path, "readme.md")
+
+	if fileInfo, err := os.Stat(readmePath); err == nil && fileInfo.Size() > 0 {
+		fmt.Printf("HINT:\tcheck out %s\n", readmePath)
 	}
 
 	return nil
+}
+
+func promptEraseExistingDir(dirPath string) (bool, error) {
+	fmt.Printf("WARN:\tdest dir %s already exists\n", dirPath)
+	fmt.Print("ASK:\terase and continue? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	answer := strings.TrimSpace(strings.ToLower(line))
+	return answer == "y" || answer == "yes", nil
+}
+
+func dirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 )
 
 type Severity int
@@ -72,25 +73,45 @@ func (e Error) Error() string {
 	return result
 }
 
+func (e Error) Add(cause error) Error {
+	e.cause = errors.Join(e.cause, cause)
+	return e
+}
+
 // Debug returns a string with full stack trace
 // and error cause. Trace entries are on newlines.
 func (e Error) Debug() string {
 	result := e.summ
 	switch e.level {
 	case Critical:
-		result = fmt.Sprintf("ERROR: %s", result)
+		result = fmt.Sprintf("ERROR:\t%s", result)
 	case Warning:
-		result = fmt.Sprintf("WARN: %s", result)
+		result = fmt.Sprintf("WARN:\t%s", result)
 	}
-	result += "\n\nstack trace:\n"
-	for _, t := range e.trace {
+	result += "\n"
+	result += "\t- trace:\n"
+	numTraceEntries := len(e.trace)
+	numDigits := len(fmt.Sprintf("%d", numTraceEntries))
+	for i := len(e.trace) - 1; i >= 0; i-- {
+		t := e.trace[i]
+		lineNum := len(e.trace) - i
+		if t.WrapM == "" {
+			result += fmt.Sprintf(
+				"\t\t%*d. %s:%d\n",
+				numDigits, lineNum, t.Fname, t.Line)
+			continue
+		}
 		result += fmt.Sprintf(
-			"\t%s:%d: %s\n",
-			t.Fname, t.Line, t.WrapM)
+			"\t\t%*d. %s:%d %s\n",
+			numDigits, lineNum, t.Fname, t.Line, t.WrapM)
 	}
 	if e.cause != nil {
-		result += "\n\ncause:\n"
-		result += e.cause.Error()
+		result += "\t- cause:\n"
+		causeLines := strings.Split(e.cause.Error(), "\n")
+		for _, line := range causeLines {
+			result += "\t\t" + line + "\n"
+		}
+		result = strings.TrimSuffix(result, "\n")
 	}
 	return result
 }
