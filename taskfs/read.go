@@ -62,7 +62,7 @@ func Read(dirPath string, opts ...ReadOption) (Task, error) {
 		return task, errwrap.Wrap(msg, nil)
 	}
 
-	err = task.ValidateOld()
+	err = task.Validate()
 	if err != nil {
 		return Task{}, errwrap.Trace(err)
 	}
@@ -321,7 +321,7 @@ func (dir TaskDirReader) Origin() (Origin, error) {
 		Authors:  taskToml.Origin.Authors,
 		Year:     taskToml.Origin.Year,
 	}
-	err = o.ValidateOld()
+	err = o.Validate()
 	if err != nil {
 		return Origin{}, errwrap.Trace(err)
 	}

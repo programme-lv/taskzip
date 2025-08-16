@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 Errors should almost always be wrapped to add context (implement concise stack trace).
 If the error is not client's fault, use errwrap.ServerError.
 If the error is client's fault, use errwrap.ClientError.

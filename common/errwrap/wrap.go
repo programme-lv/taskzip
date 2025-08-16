@@ -8,6 +8,8 @@ import (
 )
 
 // Wrap adds a message and a trace to the error
+//
+// Deprecated: use etrace.Wrap instead
 func Wrap(msg string, err error) TracedError {
 	_, file, line, _ := runtime.Caller(1)
 	path := srcFilePath(file)

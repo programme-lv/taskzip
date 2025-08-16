@@ -2,7 +2,10 @@
 alwaysApply: true
 ---
 
-Keep error and validation message logging terse. Don't start with "failed to".
+Keep error and validation message logging terse.
+Don't start with "failed to" or "error:".
 
-If action that resulted in error was performed because of a condition in branch, you should only include the condition in the error wrap message.
-It's likely that the issue will be logged later in the stack trace.
+If action that resulted in error was performed
+because of a condition in branch, you can 
+include the condition in the wrap message.
+In other words, wrap with care and when necessary.

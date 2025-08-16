@@ -2,7 +2,6 @@
 alwaysApply: true
 ---
 
-Please don't write many comments in the code.
+Please don't write verbose comments in the code.
 I like the code terse. Only add comments if the
-code is unintuitive / complex / non-obvious.
-Keep the code and changes short overall.
+code is hard to read. Keep the changes short overall.

@@ -1,5 +1,5 @@
 ---
 alwaysApply: false
 ---
-because logs are usually aggregated and wrapped,
-please always start logs with a lowercase letter.
+Because logs are usually aggregated and wrapped,
+we should start logs with a lowercase letter.
