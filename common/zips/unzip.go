@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,4 +61,75 @@ func Unzip(src, dest string) error {
 		}
 	}
 	return nil
+}
+
+// ZipDir zips the contents of srcDir into dstZipFile path. The resulting
+// archive will contain the directory contents with a top-level folder name
+// equal to the base of srcDir.
+func ZipDir(srcDir string, dstZipFile string) error {
+	// ensure parent dir exists
+	if err := os.MkdirAll(filepath.Dir(dstZipFile), os.ModePerm); err != nil {
+		return err
+	}
+
+	zipFile, err := os.Create(dstZipFile)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	zw := zip.NewWriter(zipFile)
+	defer zw.Close()
+
+	base := filepath.Base(srcDir)
+
+	walkFn := func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == srcDir {
+			return nil
+		}
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		zipPath := filepath.ToSlash(filepath.Join(base, relPath))
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			// add a directory entry (with trailing slash)
+			_, err := zw.CreateHeader(&zip.FileHeader{
+				Name:   strings.TrimSuffix(zipPath, "/") + "/",
+				Method: zip.Deflate,
+			})
+			return err
+		}
+
+		fh, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		fh.Name = zipPath
+		fh.Method = zip.Deflate
+
+		w, err := zw.CreateHeader(fh)
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(w, f)
+		return err
+	}
+
+	return filepath.WalkDir(srcDir, walkFn)
 }

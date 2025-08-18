@@ -10,6 +10,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/zips"
 )
 
 var (
@@ -55,6 +56,45 @@ func Write(task Task, dirPath string) error {
 	err = writer.WriteTask()
 	if err != nil {
 		msg := fmt.Sprintf("write task to %s", dirAbsPath)
+		return etrace.Wrap(msg, err)
+	}
+
+	return nil
+}
+
+// WriteZip writes the task into a temporary directory and archives it as a .zip
+// placed in dstDir as <ShortID>.zip. The temporary directory is removed.
+func WriteZip(task Task, dstDir string) error {
+	dstDirAbsPath, err := filepath.Abs(dstDir)
+	if err != nil {
+		msg := fmt.Sprintf("get abs path of %s", dstDir)
+		return etrace.Wrap(msg, err)
+	}
+	if !doesDirExist(dstDirAbsPath) {
+		msg := fmt.Sprintf("destination dir %s does not exist", dstDirAbsPath)
+		return etrace.Wrap(msg, nil)
+	}
+
+	zipAbsPath := filepath.Join(dstDirAbsPath, task.ShortID+".zip")
+	if _, err := os.Stat(zipAbsPath); err == nil {
+		msg := fmt.Sprintf("file %s already exists", zipAbsPath)
+		return etrace.NewError(msg)
+	}
+
+	tmpDirPath, err := os.MkdirTemp("", "taskzip-")
+	if err != nil {
+		return etrace.Wrap("create tmp dir", err)
+	}
+	defer os.RemoveAll(tmpDirPath)
+
+	// write task to a fresh subdir inside tmp
+	taskDir := filepath.Join(tmpDirPath, task.ShortID)
+	if err := Write(task, taskDir); err != nil {
+		return etrace.Wrap("write task to tmp dir", err)
+	}
+
+	if err := zips.ZipDir(taskDir, zipAbsPath); err != nil {
+		msg := fmt.Sprintf("zip %s to %s", taskDir, zipAbsPath)
 		return etrace.Wrap(msg, err)
 	}
 

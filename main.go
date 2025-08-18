@@ -23,12 +23,13 @@ func main() {
 	var src string
 	var dst string
 	var format string
+	var zipOut bool
 
 	var transformCmd = &cobra.Command{
 		Use:   "transform",
 		Short: "Transform task format to task-zip format",
 		Run: func(cmd *cobra.Command, args []string) {
-			err := transform(src, dst, format)
+			err := transform(src, dst, format, zipOut)
 			if err != nil {
 				etrace.PrintDebug(err)
 
@@ -40,6 +41,7 @@ func main() {
 	transformCmd.Flags().StringVarP(&src, "src", "s", "", "Source task directory path (*)")
 	transformCmd.Flags().StringVarP(&dst, "dst", "d", "", "Destination parent dir where new task will be written (*)")
 	transformCmd.Flags().StringVarP(&format, "format", "f", "", "Format of the import [lio2023] (*)")
+	transformCmd.Flags().BoolVar(&zipOut, "zip", false, "Write output as <ShortID>.zip into dst directory")
 
 	transformCmd.MarkFlagRequired("src")
 	transformCmd.MarkFlagRequired("dst")
@@ -53,7 +55,7 @@ func main() {
 	}
 }
 
-func transform(src string, dst string, format string) error {
+func transform(src string, dst string, format string, zipOut bool) error {
 	fmt.Printf("INFO:\trunning transform\n\t- src: %s\n\t- dst: %s\n\t- format: %s\n", src, dst, format)
 
 	var task taskfs.Task
@@ -78,6 +80,13 @@ func transform(src string, dst string, format string) error {
 		}
 	}
 
+	if zipOut {
+		return transformZip(task, dst)
+	}
+	return transformDir(task, dst)
+}
+
+func transformDir(task taskfs.Task, dst string) error {
 	path := filepath.Join(dst, task.ShortID)
 
 	if dirExists(path) {
@@ -92,18 +101,37 @@ func transform(src string, dst string, format string) error {
 		}
 	}
 
-	err = taskfs.Write(task, path)
-	if err != nil {
+	if err := taskfs.Write(task, path); err != nil {
 		return etrace.Wrap("write task", err)
 	}
 
 	fmt.Println("INFO:\tsuccessfully transformed task")
 	readmePath := filepath.Join(path, "readme.md")
-
 	if fileInfo, err := os.Stat(readmePath); err == nil && fileInfo.Size() > 0 {
 		fmt.Printf("HINT:\tcheck out %s\n", readmePath)
 	}
+	return nil
+}
 
+func transformZip(task taskfs.Task, dst string) error {
+	zipPath := filepath.Join(dst, task.ShortID+".zip")
+	if fileExists(zipPath) {
+		ok, err := promptEraseExistingFile(zipPath)
+		if err != nil {
+			return etrace.Wrap("prompt erase", err)
+		}
+		if ok {
+			if err := os.Remove(zipPath); err != nil {
+				return etrace.Wrap("remove file", err)
+			}
+		}
+	}
+
+	if err := taskfs.WriteZip(task, dst); err != nil {
+		return etrace.Wrap("write zip", err)
+	}
+	fmt.Printf("INFO:\tsuccess; zip at %s\n", zipPath)
+	fmt.Println("HINT:\tcheck out readme.md inside the .zip")
 	return nil
 }
 
@@ -122,4 +150,21 @@ func promptEraseExistingDir(dirPath string) (bool, error) {
 func dirExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func promptEraseExistingFile(filePath string) (bool, error) {
+	fmt.Printf("WARN:\tdest file %s already exists\n", filePath)
+	fmt.Print("ASK:\terase it and continue? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	answer := strings.TrimSpace(strings.ToLower(line))
+	return answer == "y" || answer == "yes", nil
 }
