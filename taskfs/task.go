@@ -188,10 +188,10 @@ func (o *Origin) Validate() (err error) {
 	if len(o.Authors) > MaxNoOfAuthors {
 		err = errors.Join(err, etrace.Trace(WarnTooManyAuthors))
 	}
-	if err := o.Notes.ValidateLangs(); err != nil {
-		err = errors.Join(err, etrace.Trace(err))
+	if err2 := o.Notes.ValidateLangs(); err2 != nil {
+		err = errors.Join(err, etrace.Trace(err2))
 	}
-	if err := ValidateOriginYear(o.Year); err != nil {
+	if err3 := ValidateOriginYear(o.Year); err3 != nil {
 		err = errors.Join(err, etrace.Trace(err))
 	}
 

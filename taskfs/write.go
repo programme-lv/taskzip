@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/programme-lv/taskzip/common/etrace"
@@ -132,6 +133,10 @@ func (w TaskWriter) WriteTask() error {
 }
 
 func (w TaskWriter) Readme() error {
+	if w.task.ReadMe == "" {
+		return nil
+	}
+
 	err := w.WriteFile("readme.md", []byte(w.task.ReadMe))
 	if err != nil {
 		return etrace.Trace(err)
@@ -217,8 +222,12 @@ func (w TaskWriter) Tests() error {
 }
 
 func (w TaskWriter) Solutions() error {
+	if len(w.task.Solutions) == 0 {
+		return nil
+	}
+
 	solutionsDir := "solutions"
-	err := w.CreateDir("solutions")
+	err := w.CreateDir(solutionsDir)
 	if err != nil {
 		return etrace.Trace(err)
 	}
@@ -234,6 +243,10 @@ func (w TaskWriter) Solutions() error {
 }
 
 func (w TaskWriter) Examples() error {
+	if len(w.task.Statement.Examples) == 0 {
+		return nil
+	}
+
 	examplesDir := "examples"
 	err := w.CreateDir("examples")
 	if err != nil {
@@ -257,6 +270,9 @@ func (w TaskWriter) Examples() error {
 		}
 		mdNoteContent := ""
 		for lang, note := range example.MdNote {
+			if strings.TrimSpace(note) == "" {
+				continue
+			}
 			mdNoteContent += fmt.Sprintf("%s\n---\n%s\n", lang, note)
 		}
 		if mdNoteContent != "" {
@@ -355,43 +371,43 @@ func (w TaskWriter) formatStoryMd(story StoryMd, lang string) string {
 
 	if story.Story != "" {
 		content += sectionNames["Story"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Story"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Story"])) + "\n\n"
 		content += story.Story + "\n\n"
 	}
 
 	if story.Input != "" {
 		content += sectionNames["Input"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Input"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Input"])) + "\n\n"
 		content += story.Input + "\n\n"
 	}
 
 	if story.Output != "" {
 		content += sectionNames["Output"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Output"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Output"])) + "\n\n"
 		content += story.Output + "\n\n"
 	}
 
 	if story.Notes != "" {
 		content += sectionNames["Notes"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Notes"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Notes"])) + "\n\n"
 		content += story.Notes + "\n\n"
 	}
 
 	if story.Scoring != "" {
 		content += sectionNames["Scoring"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Scoring"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Scoring"])) + "\n\n"
 		content += story.Scoring + "\n\n"
 	}
 
 	if story.Example != "" {
 		content += sectionNames["Example"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Example"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Example"])) + "\n\n"
 		content += story.Example + "\n\n"
 	}
 
 	if story.Talk != "" {
 		content += sectionNames["Interaction"] + "\n"
-		content += strings.Repeat("-", len(sectionNames["Interaction"])) + "\n\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Interaction"])) + "\n\n"
 		content += story.Talk + "\n"
 	}
 
@@ -399,6 +415,10 @@ func (w TaskWriter) formatStoryMd(story StoryMd, lang string) string {
 }
 
 func (w TaskWriter) Archive() error {
+	if len(w.task.Archive.Files) == 0 {
+		return nil
+	}
+
 	err := w.CreateDir("archive")
 	if err != nil {
 		msg := "create archive directory"

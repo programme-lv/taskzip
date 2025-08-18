@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/stretchr/testify/require"
@@ -63,4 +64,17 @@ func TestWriteScoring(t *testing.T) {
 func TestWriteArchive(t *testing.T) {
 	task := getTestTaskAfterWrite(t)
 	Archive(t, task)
+}
+
+func TestRuneCountInString(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int
+	}{
+		{"stāsts", 6},
+	}
+	for _, test := range tests {
+		got := utf8.RuneCountInString(test.input)
+		require.Equal(t, test.want, got)
+	}
 }
