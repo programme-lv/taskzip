@@ -168,8 +168,6 @@ func (w TaskWriter) TaskToml() error {
 
 	buf := bytes.NewBuffer(nil)
 	enc := toml.NewEncoder(buf)
-	enc.SetTablesInline(false)
-	enc.SetIndentTables(true)
 
 	err := enc.Encode(taskToml)
 	if err != nil {

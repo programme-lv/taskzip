@@ -1,37 +1,49 @@
 package taskfs
 
 type TaskToml struct {
-	Id      string
-	Name    map[string]string
-	Testing struct {
-		Type   string
-		CpuMs  int `toml:"cpu_ms"`
-		MemMiB int `toml:"mem_mib"`
-	}
-	Scoring struct {
-		Type  string
-		Total int
-	}
-	Origin struct {
-		Olymp   string
-		Year    string
-		Stage   string
-		Org     string
-		Authors []string
-		Notes   map[string]string `toml:"notes"`
-	}
-	Metadata struct {
-		Tags       []string
-		Difficulty int
-	}
-	Solutions []struct {
-		Fname    string
-		Subtasks []int
-	}
-	Subtasks []struct {
-		Points      int
-		Description map[string]string `toml:"description"`
-	}
+	Id        string             `toml:"id"`
+	Name      map[string]string  `toml:"name"`
+	Testing   TaskTomlTesting    `toml:"testing"`
+	Scoring   TaskTomlScoring    `toml:"scoring"`
+	Origin    TaskTomlOrigin     `toml:"origin"`
+	Metadata  TaskTomlMetadata   `toml:"metadata"`
+	Solutions []TaskTomlSolution `toml:"solutions,omitempty"`
+	Subtasks  []TaskTomlSubtask  `toml:"subtasks,omitempty"`
+}
+
+type TaskTomlTesting struct {
+	Type   string `toml:"type"`
+	CpuMs  int    `toml:"cpu_ms"`
+	MemMiB int    `toml:"mem_mib"`
+}
+
+type TaskTomlScoring struct {
+	Type  string `toml:"type"`
+	Total int    `toml:"total"`
+}
+
+type TaskTomlOrigin struct {
+	Olymp   string            `toml:"olymp"`
+	Year    string            `toml:"year"`
+	Stage   string            `toml:"stage"`
+	Org     string            `toml:"org"`
+	Authors []string          `toml:"authors"`
+	Notes   map[string]string `toml:"notes,inline"`
+}
+
+type TaskTomlMetadata struct {
+	Tags       []string `toml:"tags"`
+	Difficulty int      `toml:"difficulty"`
+}
+
+type TaskTomlSolution struct {
+	Fname    string `toml:"fname"`
+	Subtasks []int  `toml:"subtasks"`
+}
+
+type TaskTomlSubtask struct {
+	Points      int               `toml:"points"`
+	Description map[string]string `toml:"description,inline"`
 }
 
 func NewTaskToml(t *Task) TaskToml {
@@ -74,10 +86,7 @@ func (t *TaskToml) SetMetadata(metadata Metadata) {
 }
 
 func (t *TaskToml) SetSolutions(solutions []Solution) {
-	t.Solutions = make([]struct {
-		Fname    string
-		Subtasks []int
-	}, len(solutions))
+	t.Solutions = make([]TaskTomlSolution, len(solutions))
 	for i, sol := range solutions {
 		t.Solutions[i].Fname = sol.Fname
 		t.Solutions[i].Subtasks = sol.Subtasks
@@ -85,10 +94,7 @@ func (t *TaskToml) SetSolutions(solutions []Solution) {
 }
 
 func (t *TaskToml) SetSubtasks(subtasks []Subtask) {
-	t.Subtasks = make([]struct {
-		Points      int
-		Description map[string]string `toml:"description"`
-	}, len(subtasks))
+	t.Subtasks = make([]TaskTomlSubtask, len(subtasks))
 	for i, subtask := range subtasks {
 		t.Subtasks[i].Points = subtask.Points
 		t.Subtasks[i].Description = subtask.Desc
