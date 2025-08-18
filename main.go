@@ -127,7 +127,7 @@ func transformZip(task taskfs.Task, dst string) error {
 		}
 	}
 
-	if err := taskfs.WriteZip(task, dst); err != nil {
+	if err := taskfs.WriteZip(task, zipPath); err != nil {
 		return etrace.Wrap("write zip", err)
 	}
 	fmt.Printf("INFO:\tsuccess; zip at %s\n", zipPath)

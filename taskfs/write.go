@@ -63,19 +63,20 @@ func Write(task Task, dirPath string) error {
 }
 
 // WriteZip writes the task into a temporary directory and archives it as a .zip
-// placed in dstDir as <ShortID>.zip. The temporary directory is removed.
-func WriteZip(task Task, dstDir string) error {
-	dstDirAbsPath, err := filepath.Abs(dstDir)
+// placed exactly at zipAbsPath. The temporary directory is removed.
+func WriteZip(task Task, zipAbsPath string) error {
+	zipAbsPath, err := filepath.Abs(zipAbsPath)
 	if err != nil {
-		msg := fmt.Sprintf("get abs path of %s", dstDir)
+		msg := fmt.Sprintf("get abs path of %s", zipAbsPath)
 		return etrace.Wrap(msg, err)
 	}
-	if !doesDirExist(dstDirAbsPath) {
-		msg := fmt.Sprintf("destination dir %s does not exist", dstDirAbsPath)
+
+	parentDir := filepath.Dir(zipAbsPath)
+	if !doesDirExist(parentDir) {
+		msg := fmt.Sprintf("destination dir %s does not exist", parentDir)
 		return etrace.Wrap(msg, nil)
 	}
 
-	zipAbsPath := filepath.Join(dstDirAbsPath, task.ShortID+".zip")
 	if _, err := os.Stat(zipAbsPath); err == nil {
 		msg := fmt.Sprintf("file %s already exists", zipAbsPath)
 		return etrace.NewError(msg)
