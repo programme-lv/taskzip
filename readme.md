@@ -1,30 +1,26 @@
-Transitioning to the new task-zip format
-1. statements renamed to statement
-2. assets get moved into statement
-3. problem.toml -> task.toml
-4. test groups get their own file format
-5. add readme.md for some information
+Taskzip: online judge task archive format and CLI.
+zip because usually the task directory resides within a .zip file.
 
-I don't need to transition the old archive to the new format.
-I'll re-export all tasks from programme.lv.
+CLI
+- `task-zip validate -s <path|.zip>`: read and validate a task
+- `task-zip transform -s <src|.zip> -d <dst> -f <lio2023|lio2024> [--zip]`: import and write
 
-Readme should contain the authors for the solutions?
-And the original execution times of solutions on
-the environment the olympiad was hosted on.
+Example run
+```
+task-zip validate -s /path/to/adapteri.zip
+INFO:	read task without errors
+	- id: adapteri
+	- name: Adapteru rinda (1 langs)
+	- has readme: false
+	- statement: story (1 langs), 2 images
+	- statement: 7 subtasks (1 langs), 2 examples (2 notes)
+	- origin: olymp "LIO", stage "", org "", year , authors 0
+	  notes (1 langs): Uzdevums no Latvijas 38. (2024./2025. m. g.) informātikas olimpiādes (LIO) valsts kārtas; vecākajai (11.-12. klašu) grupai.
+	- testing: checker, 60 tests
+	- scoring: min-groups, 100p, 18 groups
+	- solutions: 0
+	- archive: 0 files, orig pdfs: 0, illustr: false
+WARN:	validate origin: stage should be set if the olympiad is set (...)
+```
 
-The following task types are possible:
-- `simple+test-sum` (no checker, 1 test is 1 p)
-- `simple+min-groups` (no checker, a group of tests give x p)
-- `checker+test-sum` (checker, 1 test is 1 p)
-- `checker+min-groups` (checker, a group of tests give x p)
-- `interactor+test-sum` (interactor, 1 test is 1 p)
-- `interactor+min-groups` (interactor, a group of tests give x p)
-
-Subtasks are a part of the statement.
-Scoring is always 
-
-
-Ideas to improve the archive format:
-- include `validator.cpp` in the `testlib` directory
-- move illustration image to the root of archive
-- move original pdf statemnets out of the reserved dir
+For a directory layout example, see `taskfs/testdata/kvadrputekl`.
