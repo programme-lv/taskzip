@@ -135,7 +135,7 @@ func (dir *TaskDirReader) readAllPathsInDir() error {
 	return nil
 }
 
-var ErrExpectedFileMissing = etrace.NewError("expected file is missing")
+var ErrFileMissing = etrace.NewError("file is missing")
 
 func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 	joined := filepath.Join(dir.dirAbsPath, relPath)
@@ -154,7 +154,7 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 
 	bytes, err := os.ReadFile(clean)
 	if err != nil {
-		return nil, etrace.Trace(ErrExpectedFileMissing.WithCause(err))
+		return nil, etrace.Trace(ErrFileMissing.WithInternalCause(err))
 	}
 	dir.readPaths[filePathRel] = true
 	return bytes, nil
@@ -199,7 +199,7 @@ func (dir TaskDirReader) Checker() (string, error) {
 	path := "checker.cpp"
 	content, err := dir.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", etrace.Trace(ErrCheckerMissing.WithCause(err))
+		return "", etrace.Trace(ErrCheckerMissing.WithInternalCause(err))
 	}
 	if err != nil {
 		return "", etrace.Trace(err)
@@ -311,7 +311,10 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 func (dir TaskDirReader) Readme() (string, error) {
 	content, err := dir.ReadFile("readme.md")
 	if err != nil {
-		return "", etrace.Trace(err)
+		if errors.Is(err, ErrFileMissing) {
+			return "", nil
+		}
+		return "", etrace.Wrap("readme.md", err)
 	}
 	return string(content), nil
 }

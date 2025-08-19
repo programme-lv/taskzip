@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/zips"
 	"github.com/programme-lv/taskzip/external/lio/lio2023"
 	"github.com/programme-lv/taskzip/external/lio/lio2024"
 	"github.com/programme-lv/taskzip/taskfs"
@@ -47,7 +48,21 @@ func main() {
 	transformCmd.MarkFlagRequired("dst")
 	transformCmd.MarkFlagRequired("format")
 
+	var validateSrc string
+	var validateCmd = &cobra.Command{
+		Use:   "validate",
+		Short: "Validate a task-zip task (dir or .zip)",
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := validate(validateSrc); err != nil {
+				etrace.PrintDebug(err)
+			}
+		},
+	}
+	validateCmd.Flags().StringVarP(&validateSrc, "src", "s", "", "Source task-zip directory or .zip (*)")
+	validateCmd.MarkFlagRequired("src")
+
 	rootCmd.AddCommand(transformCmd)
+	rootCmd.AddCommand(validateCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -58,13 +73,18 @@ func main() {
 func transform(src string, dst string, format string, zipOut bool) error {
 	fmt.Printf("INFO:\trunning transform\n\t- src: %s\n\t- dst: %s\n\t- format: %s\n", src, dst, format)
 
+	srcDir, cleanup, err := prepareSrcDir(src)
+	if err != nil {
+		return etrace.Wrap("prepare src", err)
+	}
+	defer cleanup()
+
 	var task taskfs.Task
-	var err error
 	switch format {
 	case "lio2023":
-		task, err = lio2023.ParseLio2023TaskDir(src)
+		task, err = lio2023.ParseLio2023TaskDir(srcDir)
 	case "lio2024":
-		task, err = lio2024.ParseLio2024TaskDir(src)
+		task, err = lio2024.ParseLio2024TaskDir(srcDir)
 	default:
 		msg := fmt.Sprintf("unsupported task format: %s", format)
 		return etrace.NewError(msg)
@@ -167,4 +187,68 @@ func promptEraseExistingFile(filePath string) (bool, error) {
 	}
 	answer := strings.TrimSpace(strings.ToLower(line))
 	return answer == "y" || answer == "yes", nil
+}
+
+// prepareSrcDir accepts either a directory path or a .zip path. In case of a zip,
+// it unzips it into a temporary directory and returns the directory containing
+// the task root. It supports zips that either contain the task at root or inside
+// a single top-level directory. The caller must call the returned cleanup func.
+func prepareSrcDir(src string) (string, func(), error) {
+	// default no-op cleanup
+	noop := func() {}
+
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return "", noop, etrace.Wrap("abs src", err)
+	}
+
+	if strings.HasSuffix(strings.ToLower(abs), ".zip") {
+		tmp, err := os.MkdirTemp("", "taskzip-src-")
+		if err != nil {
+			return "", noop, etrace.Wrap("mktemp", err)
+		}
+		cleanup := func() { _ = os.RemoveAll(tmp) }
+		if err := zips.Unzip(abs, tmp); err != nil {
+			return "", cleanup, etrace.Wrap("unzip", err)
+		}
+		// detect if there's a single top-level dir
+		entries, err := os.ReadDir(tmp)
+		if err != nil {
+			return "", cleanup, etrace.Wrap("readdir tmp", err)
+		}
+		if len(entries) == 1 && entries[0].IsDir() {
+			return filepath.Join(tmp, entries[0].Name()), cleanup, nil
+		}
+		return tmp, cleanup, nil
+	}
+
+	// assume directory
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", noop, etrace.Wrap("stat src", err)
+	}
+	if !info.IsDir() {
+		return "", noop, etrace.NewError("src must be a directory or .zip")
+	}
+	return abs, noop, nil
+}
+
+func validate(src string) error {
+	dir, cleanup, err := prepareSrcDir(src)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	task, err := taskfs.Read(dir)
+	if err != nil {
+		return etrace.Wrap("read task", err)
+	}
+	if err := task.Validate(); err != nil {
+		if etrace.IsCritical(err) {
+			return etrace.Wrap("validate", err)
+		}
+	}
+	fmt.Println("INFO:\tvalid task")
+	return nil
 }

@@ -27,7 +27,7 @@ func Write(task Task, dirPath string) error {
 
 	if doesDirExist(dirAbsPath) {
 		cause := fmt.Errorf("dir %s already exists", dirAbsPath)
-		return etrace.Trace(ErrDstDirExists.WithCause(cause))
+		return etrace.Trace(ErrDstDirExists.WithInternalCause(cause))
 	}
 
 	parentDir := filepath.Dir(dirAbsPath)

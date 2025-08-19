@@ -143,7 +143,7 @@ var MaxNoOfAuthors = 10
 var (
 	ErrOlympAbbrevInvalid = etrace.NewError(fmt.Sprintf("olympiad (abbrev) must be uppercase, alphanumeric, max %d chars", MaxAbbrevLen))
 	ErrStageWithoutOlymp  = etrace.NewError("olympiad stage can't be set if olympiad is not set")
-	WarnStageNotSet       = etrace.NewWarning("stage should be set as the olympiad is set")
+	WarnStageNotSet       = etrace.NewWarning("stage should be set if the olympiad is set")
 	WarnUnknownOlympStage = etrace.NewWarning("stage should be one of [" + strings.Join(OlympStages, ", ") + "]")
 	WarnNonTraceableTask  = etrace.NewWarning("task origin can't be traced back to olympiad, organization, or author")
 	ErrOrgAbbrevInvalid   = etrace.NewError(fmt.Sprintf("org must be uppercase letters/digits, max %d chars", MaxAbbrevLen))

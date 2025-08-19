@@ -75,7 +75,7 @@ func (e Error) Error() string {
 	return result
 }
 
-func (e Error) WithCause(cause error) Error {
+func (e Error) WithInternalCause(cause error) Error {
 	e.cause = errors.Join(e.cause, cause)
 	return e
 }
@@ -83,7 +83,7 @@ func (e Error) WithCause(cause error) Error {
 // Debug returns a string with full stack trace
 // and error cause. Trace entries are on newlines.
 func (e Error) Debug() string {
-	result := e.summ
+	result := e.Error()
 	switch e.level {
 	case Critical:
 		result = fmt.Sprintf("ERROR:\t%s", result)
@@ -175,10 +175,13 @@ func GetDebugStr(err error) string {
 }
 
 func (e Error) Unwrap() error {
-	// if len(e.trace) > 0 {
-	// 	e.trace = e.trace[:len(e.trace)-1]
-	// 	return e
-	// }
+	initialMsg := e.Error()
+	for len(e.trace) > 0 && e.Error() != e.summ && e.Error() == initialMsg {
+		e.trace = e.trace[:len(e.trace)-1]
+	}
+	if len(e.trace) == 0 && e.summ == "internal error" {
+		return e.cause
+	}
 	return e.cause
 }
 
@@ -189,6 +192,9 @@ func (e Error) Is(target error) bool {
 			eTraceErr.cause == e.cause {
 			return true
 		}
+	}
+	if e.Error() == target.Error() {
+		return true
 	}
 	return errors.Is(e.Unwrap(), target)
 }
