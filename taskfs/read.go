@@ -62,11 +62,6 @@ func Read(dirPath string, opts ...ReadOption) (Task, error) {
 		return task, etrace.Wrap(msg, nil)
 	}
 
-	err = task.Validate()
-	if err != nil {
-		return Task{}, etrace.Trace(err)
-	}
-
 	return task, nil
 }
 
@@ -301,10 +296,6 @@ func (dir TaskDirReader) Testing() (Testing, error) {
 		return Testing{}, etrace.Trace(err)
 	}
 	t.Tests = tests
-	err = t.Validate()
-	if err != nil {
-		return Testing{}, etrace.Trace(err)
-	}
 	return t, nil
 }
 
@@ -333,10 +324,6 @@ func (dir TaskDirReader) Origin() (Origin, error) {
 		Authors:  taskToml.Origin.Authors,
 		Year:     taskToml.Origin.Year,
 	}
-	err = o.Validate()
-	if err != nil {
-		return Origin{}, etrace.Trace(err)
-	}
 	return o, nil
 }
 
@@ -349,10 +336,6 @@ func (dir TaskDirReader) Metadata() (Metadata, error) {
 	m := Metadata{
 		ProblemTags: taskToml.Metadata.Tags,
 		Difficulty:  taskToml.Metadata.Difficulty,
-	}
-	err = m.Validate()
-	if err != nil {
-		return Metadata{}, etrace.Trace(err)
 	}
 	return m, nil
 }
@@ -793,10 +776,6 @@ func (dir TaskDirReader) Scoring(noOfTests int, subtasks []Subtask) (Scoring, er
 		ScoringT: taskToml.Scoring.Type,
 		TotalP:   taskToml.Scoring.Total,
 		Groups:   tgs,
-	}
-	if err := scoring.Validate(noOfTests, subtasks); err != nil {
-		msg := "validate scoring"
-		return Scoring{}, etrace.Wrap(msg, err)
 	}
 	return scoring, nil
 }
