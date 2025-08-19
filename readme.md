@@ -24,3 +24,8 @@ WARN:	validate origin: stage should be set if the olympiad is set (...)
 ```
 
 For a directory layout example, see `taskfs/testdata/kvadrputekl`.
+
+Repo structure:
+- external: various olympiad filesystem parsers for importing tasks
+- taskfs: read and write taskzip archive file structure, validation
+- llm: help from llms to e.g. convert previous statement to markdown
