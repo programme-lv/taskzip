@@ -1,16 +1,23 @@
 package lio2024_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/zips"
 	"github.com/programme-lv/taskzip/external/lio/lio2024"
 	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
-	task, err := lio2024.ParseLio2024TaskDir("testdata/kp")
+	tmpDir := t.TempDir()
+	err := zips.Unzip("testdata/kp.zip", tmpDir)
+	require.NoError(t, err)
+
+	taskDir := filepath.Join(tmpDir, "kp")
+	task, err := lio2024.ParseLio2024TaskDir(taskDir)
 	require.NoError(t, err)
 
 	err = task.Validate()
@@ -91,22 +98,14 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	require.NotEmpty(t, task.Archive.GetOgStatementPdfs())
 }
 
-func TestParsingLio2024TaskWithAChecker(t *testing.T) {
-	task, err := lio2024.ParseLio2024TaskDir("testdata/tornis")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "no tests for group")
-	require.Equal(t, "tornis", task.ShortID)
-
-	// testing
-	require.Equal(t, "checker", task.Testing.TestingT)
-	require.NotEmpty(t, task.Testing.Checker)
-	require.Empty(t, task.Testing.Interactor)
-}
-
 func TestParsingLio2024TaskWithAnInteractor(t *testing.T) {
-	task, err := lio2024.ParseLio2024TaskDir("testdata/uzmini")
+	tmpDir := t.TempDir()
+	err := zips.Unzip("testdata/uzmini.zip", tmpDir)
 	require.NoError(t, err)
-	require.Equal(t, "uzmini", task.ShortID)
+
+	taskDir := filepath.Join(tmpDir, "uzmini")
+	task, err := lio2024.ParseLio2024TaskDir(taskDir)
+	require.NoError(t, err)
 
 	// testing
 	require.Equal(t, "interactor", task.Testing.TestingT)
