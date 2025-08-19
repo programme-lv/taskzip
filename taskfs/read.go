@@ -16,6 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/programme-lv/taskzip/common/etrace"
 	"github.com/programme-lv/taskzip/common/fn"
+	"github.com/programme-lv/taskzip/common/zips"
 )
 
 type ReadConfig struct {
@@ -63,6 +64,28 @@ func Read(dirPath string, opts ...ReadOption) (Task, error) {
 	}
 
 	return task, nil
+}
+
+// ReadZip reads a task from a .zip file. Supports shallow zips or a single top-level dir.
+func ReadZip(zipPath string, opts ...ReadOption) (Task, error) {
+	tmp, err := os.MkdirTemp("", "taskzip-read-")
+	if err != nil {
+		return Task{}, etrace.Wrap("mktemp", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	if err := zips.Unzip(zipPath, tmp); err != nil {
+		return Task{}, etrace.Wrap("unzip", err)
+	}
+	root := tmp
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		return Task{}, etrace.Wrap("readdir tmp", err)
+	}
+	if len(entries) == 1 && entries[0].IsDir() {
+		root = filepath.Join(tmp, entries[0].Name())
+	}
+	return Read(root, opts...)
 }
 
 type TaskDirReader struct {

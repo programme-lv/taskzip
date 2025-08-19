@@ -1,10 +1,12 @@
 package taskfs_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/programme-lv/taskzip/common/etrace"
+	"github.com/programme-lv/taskzip/common/zips"
 	"github.com/programme-lv/taskzip/taskfs"
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +21,16 @@ func getTestTask(t *testing.T) *taskfs.Task {
 func TestReadBasicInfo(t *testing.T) {
 	task := getTestTask(t)
 	BasicInfo(t, task)
+}
+
+func TestReadZip(t *testing.T) {
+	zipPath := filepath.Join(t.TempDir(), "kvadrputekl.zip")
+	err := zips.ZipDir("testdata/kvadrputekl", zipPath)
+	require.NoError(t, err)
+
+	task, err := taskfs.ReadZip(zipPath)
+	require.NoError(t, err)
+	BasicInfo(t, &task)
 }
 
 func BasicInfo(t *testing.T, task *taskfs.Task) {
