@@ -233,6 +233,7 @@ func prepareSrcDir(src string) (string, func(), error) {
 }
 
 func validate(src string) error {
+	fmt.Printf("INFO:\trunning validate on %s\n", src)
 	dir, cleanup, err := prepareSrcDir(src)
 	if err != nil {
 		return err

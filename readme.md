@@ -2,7 +2,7 @@ Taskzip: online judge task archive format and CLI.
 zip because usually the task directory resides within a .zip file.
 
 CLI
-- `task-zip validate -s <path|.zip>`: read and validate a task
+- `task-zip validate <path|.zip>`: read and validate a task
 - `task-zip transform -s <src|.zip> -d <dst> -f <lio2023|lio2024> [--zip]`: import and write
 
 Example run
