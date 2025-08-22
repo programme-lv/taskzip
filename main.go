@@ -17,7 +17,7 @@ import (
 
 func main() {
 	var rootCmd = &cobra.Command{
-		Use:   "task-zip",
+		Use:   "taskzip",
 		Short: "Task .zip archive management CLI tool",
 	}
 
@@ -25,7 +25,6 @@ func main() {
 	var dst string
 	var format string
 	var zipOut bool
-
 	var transformCmd = &cobra.Command{
 		Use:   "transform",
 		Short: "Transform task format to task-zip format",
@@ -48,18 +47,16 @@ func main() {
 	transformCmd.MarkFlagRequired("dst")
 	transformCmd.MarkFlagRequired("format")
 
-	var validateSrc string
 	var validateCmd = &cobra.Command{
-		Use:   "validate",
+		Use:   "validate [task-path]",
 		Short: "Validate a task-zip task (dir or .zip)",
+		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := validate(validateSrc); err != nil {
+			if err := validate(args[0]); err != nil {
 				etrace.PrintDebug(err)
 			}
 		},
 	}
-	validateCmd.Flags().StringVarP(&validateSrc, "src", "s", "", "Source task-zip directory or .zip (*)")
-	validateCmd.MarkFlagRequired("src")
 
 	rootCmd.AddCommand(transformCmd)
 	rootCmd.AddCommand(validateCmd)
