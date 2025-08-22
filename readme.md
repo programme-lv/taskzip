@@ -2,12 +2,16 @@ Taskzip: online judge task archive format and CLI.
 zip because usually the task directory resides within a .zip file.
 
 CLI
-- `task-zip validate <path|.zip>`: read and validate a task
-- `task-zip transform -s <src|.zip> -d <dst> -f <lio2023|lio2024> [--zip]`: import and write
+- `taskzip validate <path|.zip>`: read and validate a task
+- `taskzip transform -s <src|.zip> -d <dst> -f <lio2023|lio2024> [--zip]`: import and write
+- `taskzip assist <path|.zip>`: infers archive files to fill out missing information using AI: md statement; subtask descriptions.
 
+1. read into a taskfs.Task
+2. prompt whether to fill md statement
+3. if yes, then
 Example run
 ```
-task-zip validate -s /path/to/adapteri.zip
+task-zip validate /path/to/adapteri.zip
 INFO:	read task without errors
 	- id: adapteri
 	- name: Adapteru rinda (1 langs)
@@ -28,4 +32,4 @@ For a directory layout example, see `taskfs/testdata/kvadrputekl`.
 Repo structure:
 - external: various olympiad filesystem parsers for importing tasks
 - taskfs: read and write taskzip archive file structure, validation
-- llm: help from llms to e.g. convert previous statement to markdown
+- assist: help from llms to e.g. convert previous statement to markdown

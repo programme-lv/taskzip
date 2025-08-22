@@ -3,10 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
+	"github.com/programme-lv/taskzip/assist"
 	"github.com/programme-lv/taskzip/common/etrace"
 	"github.com/programme-lv/taskzip/common/zips"
 	"github.com/programme-lv/taskzip/external/lio/lio2023"
@@ -16,6 +19,11 @@ import (
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	var rootCmd = &cobra.Command{
 		Use:   "taskzip",
 		Short: "Task .zip archive management CLI tool",
@@ -58,8 +66,20 @@ func main() {
 		},
 	}
 
+	var assistCmd = &cobra.Command{
+		Use:   "assist [task-path]",
+		Short: "Assist filling out missing info using AI",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := assistFunc(args[0]); err != nil {
+				etrace.PrintDebug(err)
+			}
+		},
+	}
+
 	rootCmd.AddCommand(transformCmd)
 	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(assistCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -230,6 +250,120 @@ func prepareSrcDir(src string) (string, func(), error) {
 		return "", noop, etrace.NewError("src must be a directory or .zip")
 	}
 	return abs, noop, nil
+}
+
+func assistFunc(src string) error {
+	fmt.Printf("INFO:\trunning assist on %s\n", src)
+	dir, cleanup, err := prepareSrcDir(src)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	task, err := taskfs.Read(dir)
+	if err != nil {
+		return etrace.Wrap("read task", err)
+	}
+
+	fmt.Println("WARN:\tsuccessful action will overwrite source")
+	fmt.Println("HINT:\tpress Ctrl+C to exit")
+	fmt.Println("INFO:\tavailable workflows:")
+	fmt.Println("\t1. use .typ from archive to fill lv.md statement")
+	fmt.Printf("ASK:\tchoose workflow: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return etrace.Wrap("read line", err)
+	}
+	answer := strings.TrimSpace(strings.ToLower(line))
+	switch answer {
+	case "1":
+		fmt.Println("INFO:\tfilling lv.md statement")
+		task, err = fillLvMdStatement(task)
+		if err != nil {
+			return etrace.Wrap("fill lv.md statement", err)
+		}
+	default:
+		return etrace.NewError("invalid workflow")
+	}
+
+	if strings.HasSuffix(src, ".zip") {
+		// delete the .zip
+		if err := os.Remove(src); err != nil {
+			return etrace.Wrap("remove zip", err)
+		}
+		err = taskfs.WriteZip(task, src)
+		if err != nil {
+			return etrace.Wrap("write zip", err)
+		}
+	} else {
+		// delete the original dir
+		if err := os.RemoveAll(dir); err != nil {
+			return etrace.Wrap("remove dir", err)
+		}
+		// write task to that location
+		if err := taskfs.Write(task, dir); err != nil {
+			return etrace.Wrap("write task", err)
+		}
+	}
+
+	fmt.Printf("INFO:\tsuccessfully completed workflow\n")
+	return nil
+}
+
+func fillLvMdStatement(task taskfs.Task) (taskfs.Task, error) {
+	// find .typ files in archive
+	typFiles := []assist.File{}
+	for _, file := range task.Archive.Files {
+		if strings.HasSuffix(file.RelPath, ".typ") {
+			typFiles = append(typFiles, assist.File{
+				Content: file.Content,
+				Fname:   file.RelPath,
+			})
+		}
+	}
+	prompt := "You are a precise technical writer. Use the attached files. " +
+		"Return your final answer as RAW GitHub Flavored Markdown ONLY. " +
+		"Do NOT wrap in code fences. Do NOT include any prose before or after the markdown.\n"
+
+	prompt += "Your task is to transfer an competitive programming task statement" +
+		"from Typst (.typ) to Markdown (.md) format. Language of statement is Latvian. " +
+		"Note that the added file may not have a .typ extension but a .txt.\n"
+
+	prompt += "The resulting markdown may contain mathematical expressions. " +
+		"Convert the math expressions to KaTeX-compatible format using dollar signs (`$...$`).\n"
+
+	prompt += "Result should contain 3 sections: stāsts, ievaddati, izvaddati. "
+	prompt += "It should look like this with TODO replaced with actual content:\n"
+
+	prompt = strings.ReplaceAll(prompt, "\n", "\n\n")
+
+	example := `Stāsts
+------
+
+TODO
+
+Ievaddati
+---------
+
+TODO
+
+Izvaddati
+---------
+
+TODO
+`
+
+	prompt += fmt.Sprintf("```\n%s\n```\n", example)
+
+	response, err := assist.AskChatGpt(prompt, typFiles)
+	if err != nil {
+		return task, etrace.Wrap("ask chat gpt", err)
+	}
+
+	fmt.Println(response)
+	panic("not implemented")
 }
 
 func validate(src string) error {
