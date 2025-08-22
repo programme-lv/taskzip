@@ -126,11 +126,11 @@ func transformDir(task taskfs.Task, dst string) error {
 	}
 
 	fmt.Println("INFO:\tsuccessfully transformed task")
+	printTaskOverview(task)
 	readmePath := filepath.Join(path, "readme.md")
 	if fileInfo, err := os.Stat(readmePath); err == nil && fileInfo.Size() > 0 {
 		fmt.Printf("HINT:\tcheck out %s\n", readmePath)
 	}
-	printTaskOverview(task)
 	return nil
 }
 
