@@ -98,6 +98,7 @@ func base(parsedYaml ParsedLio2024Yaml) taskfs.Task {
 	task.Origin.Notes = taskfs.I18N[string]{"lv": ""}
 	task.Origin.Authors = []string{}
 	task.Origin.Year = ""
+	task.Origin.Lang = "lv"
 
 	task.Testing.TestingT = "simple"
 	task.Testing.CpuLimMs = int(parsedYaml.CpuTimeLimitInSeconds * 1000)

@@ -47,6 +47,7 @@ func ParseLio2023TaskDir(dirPath string) (taskfs.Task, error) {
 	task.Origin.Notes = map[string]string{"lv": "LIO 2023 task"}
 	task.Origin.Authors = []string{"LIO 2023"}
 	task.Origin.Year = "2023"
+	task.Origin.Lang = "lv"
 
 	// Set up subtasks based on subtask_points (skip first 0 entry)
 	for i, points := range taskYaml.SubtaskPoints {

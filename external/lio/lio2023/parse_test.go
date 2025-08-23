@@ -16,6 +16,7 @@ func TestParsingLio2023TaskWithBothACheckerAndAnInteractor(t *testing.T) {
 	require.NoErrorf(t, err, "failed to parse task: %v", err)
 
 	require.NotNilf(t, task, "task is nil")
+	require.Equal(t, "lv", task.Origin.Lang)
 
 	// When both interactor and checker exist, interactor takes precedence
 	require.NotEmptyf(t, task.Testing.Interactor, "task.Testing.Interactor is empty")

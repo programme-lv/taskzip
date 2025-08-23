@@ -29,6 +29,7 @@ type TaskTomlOrigin struct {
 	Org     string            `toml:"org"`
 	Authors []string          `toml:"authors"`
 	Notes   map[string]string `toml:"notes,inline"`
+	Lang    string            `toml:"lang"`
 }
 
 type TaskTomlMetadata struct {
@@ -79,6 +80,7 @@ func (t *TaskToml) SetOrigin(origin Origin) {
 	t.Origin.Org = origin.Org
 	t.Origin.Authors = origin.Authors
 	t.Origin.Notes = origin.Notes
+	t.Origin.Lang = origin.Lang
 }
 
 func (t *TaskToml) SetMetadata(metadata Metadata) {

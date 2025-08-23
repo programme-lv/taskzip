@@ -55,6 +55,7 @@ func Origin(t *testing.T, task *taskfs.Task) {
 	require.Contains(t, task.Origin.Notes["lv"], "Uzdevums no Latvijas 37")
 	require.Contains(t, task.Origin.Notes["en"], "The problem is from")
 	require.Equal(t, 2, len(task.Origin.Notes))
+	require.Equal(t, "lv", task.Origin.Lang)
 }
 
 func TestReadMetadata(t *testing.T) {

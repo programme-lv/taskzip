@@ -26,7 +26,7 @@ func printTaskOverview(task taskfs.Task) {
 	fmt.Printf("\t- statement: %d subtasks (%d langs), %d examples (%d notes)\n", subtasks, subtaskLangs, examples, exampleNotes)
 	// origin overview
 	noteLangs := countNonEmptyLangs(task.Origin.Notes)
-	fmt.Printf("\t- origin: olymp %q, stage %q, org %q, year %s, authors %d\n", task.Origin.Olympiad, task.Origin.OlyStage, task.Origin.Org, task.Origin.Year, len(task.Origin.Authors))
+	fmt.Printf("\t- origin: olymp %q, stage %q, org %q, year %s, lang %q, authors %d\n", task.Origin.Olympiad, task.Origin.OlyStage, task.Origin.Org, task.Origin.Year, task.Origin.Lang, len(task.Origin.Authors))
 	if noteLangs > 0 {
 		note := pickDefaultNote(task.Origin.Notes)
 		note = strings.TrimSpace(note)

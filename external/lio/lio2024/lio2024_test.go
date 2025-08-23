@@ -38,6 +38,7 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 	require.Equal(t, "", task.Origin.OlyStage)
 	require.Equal(t, "", task.Origin.Org)
 	require.Equal(t, "", task.Origin.Notes["lv"])
+	require.Equal(t, "lv", task.Origin.Lang)
 
 	// testing
 	require.Equal(t, "simple", task.Testing.TestingT)

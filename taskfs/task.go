@@ -132,6 +132,7 @@ type Origin struct {
 	Notes    I18N[string] // language -> note. full name of olymp, org + details
 	Authors  []string     // first name + last name list
 	Year     string       // yyyy | yyyy/yyyy e.g. 2024/2025.
+	Lang     string       // original language ISO 639-1 code
 }
 
 var OlympStages = []string{"online", "school", "municipal", "national", "selection", "regional", "international"}
@@ -192,7 +193,13 @@ func (o *Origin) Validate() (err error) {
 		err = errors.Join(err, etrace.Trace(err2))
 	}
 	if err3 := ValidateOriginYear(o.Year); err3 != nil {
-		err = errors.Join(err, etrace.Trace(err))
+		err = errors.Join(err, etrace.Trace(err3))
+	}
+
+	if o.Lang != "" {
+		if _, ok := iso639.Languages[o.Lang]; !ok {
+			err = errors.Join(err, etrace.Trace(ErrInvalidIso639LangCode))
+		}
 	}
 
 	return err

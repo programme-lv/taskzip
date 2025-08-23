@@ -347,6 +347,7 @@ func (dir TaskDirReader) Origin() (Origin, error) {
 		Notes:    taskToml.Origin.Notes,
 		Authors:  taskToml.Origin.Authors,
 		Year:     taskToml.Origin.Year,
+		Lang:     taskToml.Origin.Lang,
 	}
 	return o, nil
 }
