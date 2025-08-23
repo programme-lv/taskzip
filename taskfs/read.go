@@ -172,7 +172,8 @@ func (dir TaskDirReader) ReadFile(relPath string) ([]byte, error) {
 
 	bytes, err := os.ReadFile(clean)
 	if err != nil {
-		return nil, etrace.Trace(ErrFileMissing.WithInternalCause(err))
+		internalCause := fmt.Errorf("read file %s: %w", relPath, err)
+		return nil, etrace.Trace(ErrFileMissing.WithInternalCause(internalCause))
 	}
 	dir.readPaths[filePathRel] = true
 	return bytes, nil
@@ -194,7 +195,7 @@ func (dir TaskDirReader) ListDir(dirRelPath string) ([]string, error) {
 func (dir TaskDirReader) Toml() (TaskToml, error) {
 	content, err := dir.ReadFile("task.toml")
 	if err != nil {
-		return TaskToml{}, etrace.Trace(err)
+		return TaskToml{}, etrace.Wrap("read task.toml", err)
 	}
 	taskToml := TaskToml{}
 	d := toml.NewDecoder(bytes.NewReader(content))

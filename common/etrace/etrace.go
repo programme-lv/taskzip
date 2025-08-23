@@ -84,12 +84,6 @@ func (e Error) WithInternalCause(cause error) Error {
 // and error cause. Trace entries are on newlines.
 func (e Error) Debug() string {
 	result := e.Error()
-	switch e.level {
-	case Critical:
-		result = fmt.Sprintf("ERROR:\t%s", result)
-	case Warning:
-		result = fmt.Sprintf("WARN:\t%s", result)
-	}
 	if e.Fname != "" {
 		result += fmt.Sprintf(" (%s:%d)", e.Fname, e.Line)
 	}
@@ -167,9 +161,9 @@ func GetDebugStr(err error) string {
 		return etraceErr.Debug()
 	}
 
-	if u, ok := err.(interface{ Unwrap() error }); ok {
-		return GetDebugStr(u.Unwrap())
-	}
+	// if u, ok := err.(interface{ Unwrap() error }); ok {
+	// 	return GetDebugStr(u.Error())
+	// }
 
 	return err.Error()
 }

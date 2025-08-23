@@ -65,7 +65,7 @@ func AskChatGpt(prompt string, attached []File) (string, error) {
 		},
 		MaxOutputTokens: openai.Int(10000),
 		Tools: []responses.ToolUnionParam{
-			responses.ToolUnionParam{OfFileSearch: &responses.FileSearchToolParam{
+			{OfFileSearch: &responses.FileSearchToolParam{
 				VectorStoreIDs: []string{vs.ID},
 			}},
 		},
@@ -83,6 +83,19 @@ func AskChatGpt(prompt string, attached []File) (string, error) {
 	if md == "" {
 		return "", etrace.Trace(errors.New("empty output_text from model"))
 	}
+
+	// 4) Delete files and vector store
+	for _, fileID := range fileIDs {
+		_, err := client.Files.Delete(ctx, fileID)
+		if err != nil {
+			return "", etrace.Trace(etrace.Wrap("delete file", err))
+		}
+	}
+	_, err = client.VectorStores.Delete(ctx, vs.ID)
+	if err != nil {
+		return "", etrace.Trace(etrace.Wrap("delete vector store", err))
+	}
+
 	return md, nil
 }
 

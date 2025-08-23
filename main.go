@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/joho/godotenv"
 	"github.com/programme-lv/taskzip/assist"
 	"github.com/programme-lv/taskzip/common/etrace"
@@ -18,10 +18,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func info(format string, args ...interface{}) {
+	fmt.Printf("%s\t", color.GreenString("INFO:"))
+	fmt.Printf(format+"\n", args...)
+}
+
+func warn(format string, args ...interface{}) {
+	fmt.Printf("%s\t", color.YellowString("WARN:"))
+	fmt.Printf(format+"\n", args...)
+}
+
+func ask(format string, args ...interface{}) {
+	fmt.Printf("%s\t", color.BlueString("ASK:"))
+	fmt.Printf(format+": ", args...)
+}
+
+func hint(format string, args ...interface{}) {
+	fmt.Printf("%s\t", color.CyanString("HINT:"))
+	fmt.Printf(format+"\n", args...)
+}
+
+func errorr(format string, args ...interface{}) {
+	fmt.Printf("%s\t", color.RedString("ERROR:"))
+	fmt.Printf(format+"\n", args...)
+	os.Exit(1)
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		errorr("error loading .env file")
 	}
 
 	var rootCmd = &cobra.Command{
@@ -39,9 +65,7 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			err := transform(src, dst, format, zipOut)
 			if err != nil {
-				etrace.PrintDebug(err)
-
-				// os.Exit(1)
+				errorr("%s\n", etrace.GetDebugStr(err))
 			}
 		},
 	}
@@ -61,7 +85,11 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := validate(args[0]); err != nil {
-				etrace.PrintDebug(err)
+				if etrace.IsCritical(err) {
+					errorr("%s\n", etrace.GetDebugStr(err))
+				} else {
+					warn("%s\n", etrace.GetDebugStr(err))
+				}
 			}
 		},
 	}
@@ -72,7 +100,7 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := assistFunc(args[0]); err != nil {
-				etrace.PrintDebug(err)
+				errorr("%s\n", etrace.GetDebugStr(err))
 			}
 		},
 	}
@@ -88,7 +116,7 @@ func main() {
 }
 
 func transform(src string, dst string, format string, zipOut bool) error {
-	fmt.Printf("INFO:\trunning transform\n\t- src: %s\n\t- dst: %s\n\t- format: %s\n", src, dst, format)
+	info("running transform\n\t- src: %s\n\t- dst parent dir: %s\n\t- format: %s", src, dst, format)
 
 	srcDir, cleanup, err := prepareSrcDir(src)
 	if err != nil {
@@ -142,11 +170,11 @@ func transformDir(task taskfs.Task, dst string) error {
 		return etrace.Wrap("write task", err)
 	}
 
-	fmt.Println("INFO:\tsuccessfully transformed task")
+	info("successfully transformed task")
 	printTaskOverview(task)
 	readmePath := filepath.Join(path, "readme.md")
 	if fileInfo, err := os.Stat(readmePath); err == nil && fileInfo.Size() > 0 {
-		fmt.Printf("HINT:\tcheck out %s\n", readmePath)
+		hint("check out %s\n", readmePath)
 	}
 	return nil
 }
@@ -168,22 +196,35 @@ func transformZip(task taskfs.Task, dst string) error {
 	if err := taskfs.WriteZip(task, zipPath); err != nil {
 		return etrace.Wrap("write zip", err)
 	}
-	fmt.Printf("INFO:\tsuccess; zip at %s\n", zipPath)
-	fmt.Println("HINT:\tcheck out readme.md inside the .zip")
+	info("success; zip at %s", zipPath)
+	hint("check out readme.md inside the .zip")
 	printTaskOverview(task)
 	return nil
 }
 
 func promptEraseExistingDir(dirPath string) (bool, error) {
-	fmt.Printf("WARN:\tdest dir %s already exists\n", dirPath)
-	fmt.Print("ASK:\terase it recursively and continue? [y/N]: ")
+	warn("dst dir %s already exists", dirPath)
+	ask("delete it recursively and continue? [y/N]")
+	answer, err := readAnswer()
+	if err != nil {
+		return false, etrace.Wrap("read answer", err)
+	}
+	implication := "continue without deleting"
+	if answer == "y" || answer == "yes" {
+		implication = "delete and continue"
+	}
+	info("received answer: %s (%s)", answer, implication)
+	return answer == "y" || answer == "yes", nil
+}
+
+func readAnswer() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	answer := strings.TrimSpace(strings.ToLower(line))
-	return answer == "y" || answer == "yes", nil
+	return answer, nil
 }
 
 func dirExists(path string) bool {
@@ -197,14 +238,17 @@ func fileExists(path string) bool {
 }
 
 func promptEraseExistingFile(filePath string) (bool, error) {
-	fmt.Printf("WARN:\tdest file %s already exists\n", filePath)
-	fmt.Print("ASK:\terase it and continue? [y/N]: ")
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
+	warn("dest file %s already exists", filePath)
+	ask("delete it and continue? [y/N]")
+	answer, err := readAnswer()
 	if err != nil {
-		return false, err
+		return false, etrace.Wrap("read answer", err)
 	}
-	answer := strings.TrimSpace(strings.ToLower(line))
+	implication := "continue without deleting"
+	if answer == "y" || answer == "yes" {
+		implication = "delete and continue"
+	}
+	info("received answer: %s (%s)", answer, implication)
 	return answer == "y" || answer == "yes", nil
 }
 
@@ -253,7 +297,7 @@ func prepareSrcDir(src string) (string, func(), error) {
 }
 
 func assistFunc(src string) error {
-	fmt.Printf("INFO:\trunning assist on %s\n", src)
+	info("running assist on %s", src)
 	dir, cleanup, err := prepareSrcDir(src)
 	if err != nil {
 		return err
@@ -265,21 +309,23 @@ func assistFunc(src string) error {
 		return etrace.Wrap("read task", err)
 	}
 
-	fmt.Println("WARN:\tsuccessful action will overwrite source")
-	fmt.Println("HINT:\tpress Ctrl+C to exit")
-	fmt.Println("INFO:\tavailable workflows:")
-	fmt.Println("\t1. use .typ from archive to fill lv.md statement")
-	fmt.Printf("ASK:\tchoose workflow: ")
-
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return etrace.Wrap("read line", err)
+	warn("successful action will overwrite source; press Ctrl+C to exit")
+	workflows := []string{
+		"use .typ from archive to fill lv.md statement",
 	}
-	answer := strings.TrimSpace(strings.ToLower(line))
+	info("available workflows:")
+	for i, workflow := range workflows {
+		fmt.Printf("\t%d. %s\n", i+1, workflow)
+	}
+	ask("choose workflow")
+
+	answer, err := readAnswer()
+	if err != nil {
+		return etrace.Wrap("read answer", err)
+	}
 	switch answer {
 	case "1":
-		fmt.Println("INFO:\tfilling lv.md statement")
+		info("received answer: %s (filling lv.md statement)", answer)
 		task, err = fillLvMdStatement(task)
 		if err != nil {
 			return etrace.Wrap("fill lv.md statement", err)
@@ -308,20 +354,26 @@ func assistFunc(src string) error {
 		}
 	}
 
-	fmt.Printf("INFO:\tsuccessfully completed workflow\n")
+	info("successfully completed workflow")
 	return nil
 }
 
 func fillLvMdStatement(task taskfs.Task) (taskfs.Task, error) {
 	// find .typ files in archive
-	typFiles := []assist.File{}
+	files := []assist.File{}
 	for _, file := range task.Archive.Files {
 		if strings.HasSuffix(file.RelPath, ".typ") {
-			typFiles = append(typFiles, assist.File{
+			files = append(files, assist.File{
 				Content: file.Content,
 				Fname:   file.RelPath,
 			})
 		}
+	}
+	for _, file := range task.Archive.GetOgStatementPdfs() {
+		files = append(files, assist.File{
+			Content: file.Content,
+			Fname:   fmt.Sprintf("%s.pdf", file.Language),
+		})
 	}
 	prompt := "You are a precise technical writer. Use the attached files. " +
 		"Return your final answer as RAW GitHub Flavored Markdown ONLY. " +
@@ -335,39 +387,43 @@ func fillLvMdStatement(task taskfs.Task) (taskfs.Task, error) {
 		"Convert the math expressions to KaTeX-compatible format using dollar signs (`$...$`).\n"
 
 	prompt += "Result should contain 3 sections: stāsts, ievaddati, izvaddati. "
-	prompt += "It should look like this with TODO replaced with actual content:\n"
+	prompt += "It should look like this with ... replaced with actual content:\n"
 
 	prompt = strings.ReplaceAll(prompt, "\n", "\n\n")
 
 	example := `Stāsts
 ------
 
-TODO
+...
 
 Ievaddati
 ---------
 
-TODO
+...
 
 Izvaddati
 ---------
 
-TODO
+...
 `
 
 	prompt += fmt.Sprintf("```\n%s\n```\n", example)
 
-	response, err := assist.AskChatGpt(prompt, typFiles)
+	response, err := assist.AskChatGpt(prompt, files)
 	if err != nil {
 		return task, etrace.Wrap("ask chat gpt", err)
 	}
 
-	fmt.Println(response)
-	panic("not implemented")
+	story, err := taskfs.ParseMdStory(response, "lv")
+	if err != nil {
+		return task, etrace.Wrap("parse md story", err)
+	}
+	task.Statement.Stories["lv"] = story
+	return task, nil
 }
 
 func validate(src string) error {
-	fmt.Printf("INFO:\trunning validate on %s\n", src)
+	info("running validate on %s", src)
 	dir, cleanup, err := prepareSrcDir(src)
 	if err != nil {
 		return err
@@ -378,12 +434,12 @@ func validate(src string) error {
 	if err != nil {
 		return etrace.Wrap("read task", err)
 	}
-	fmt.Println("INFO:\tread task without errors")
+	info("read task without errors")
 	printTaskOverview(task)
 	if err := task.Validate(); err != nil {
 		return err
 	}
-	fmt.Println("INFO:\tall good")
+	info("all good")
 	return nil
 }
 
