@@ -14,7 +14,7 @@ import (
 func transform(src string, dst string, format string, zipOut bool) error {
 	info("running transform\n\t- src: %s\n\t- dst parent dir: %s\n\t- format: %s", src, dst, format)
 
-	srcDir, cleanup, err := ensureSrcIsDir(src)
+	srcDir, cleanup, err := extractToTmpIfZip(src)
 	if err != nil {
 		return etrace.Wrap("prepare src", err)
 	}

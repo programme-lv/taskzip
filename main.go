@@ -73,9 +73,28 @@ func main() {
 		},
 	}
 
+	var rewriteZip bool
+	var rewriteCmd = &cobra.Command{
+		Use:   "rewrite [task-path]",
+		Short: "Rewrite a task in-place (dir or .zip)",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := rewrite(args[0], rewriteZip); err != nil {
+				if etrace.IsCritical(err) {
+					errorr("%s\n", etrace.GetDebugStr(err))
+				} else {
+					warn("%s\n", etrace.GetDebugStr(err))
+				}
+			}
+		},
+	}
+
+	rewriteCmd.Flags().BoolVar(&rewriteZip, "zip", false, "Rewrite a .zip task (path must be a .zip)")
+
 	rootCmd.AddCommand(transformCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(assistCmd)
+	rootCmd.AddCommand(rewriteCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -83,11 +102,11 @@ func main() {
 	}
 }
 
-// ensureSrcIsDir accepts either a directory path or a .zip path. In case of a zip,
+// extractToTmpIfZip accepts either a directory path or a .zip path. In case of a zip,
 // it unzips it into a temporary directory and returns the directory containing
 // the task root. It supports zips that either contain the task at root or inside
 // a single top-level directory. The caller must call the returned cleanup func.
-func ensureSrcIsDir(src string) (string, func(), error) {
+func extractToTmpIfZip(src string) (string, func(), error) {
 	// default no-op cleanup
 	noop := func() {}
 

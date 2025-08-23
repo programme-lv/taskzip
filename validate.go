@@ -7,7 +7,7 @@ import (
 
 func validate(src string) error {
 	info("running validate on %s", src)
-	dir, cleanup, err := ensureSrcIsDir(src)
+	dir, cleanup, err := extractToTmpIfZip(src)
 	if err != nil {
 		return err
 	}

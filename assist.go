@@ -13,7 +13,7 @@ import (
 
 func assistFunc(src string) error {
 	info("running assist on %s", src)
-	dir, cleanup, err := ensureSrcIsDir(src)
+	dir, cleanup, err := extractToTmpIfZip(src)
 	if err != nil {
 		return err
 	}

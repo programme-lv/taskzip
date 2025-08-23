@@ -44,6 +44,7 @@ type TaskTomlSolution struct {
 type TaskTomlSubtask struct {
 	Points      int               `toml:"points"`
 	Description map[string]string `toml:"description,inline"`
+	VisInput    bool              `toml:"vis_input"`
 }
 
 func NewTaskToml(t *Task) TaskToml {
@@ -98,5 +99,6 @@ func (t *TaskToml) SetSubtasks(subtasks []Subtask) {
 	for i, subtask := range subtasks {
 		t.Subtasks[i].Points = subtask.Points
 		t.Subtasks[i].Description = subtask.Desc
+		t.Subtasks[i].VisInput = subtask.VisInput
 	}
 }
