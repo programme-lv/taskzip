@@ -12,6 +12,7 @@ import (
 	openai "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v2/shared"
 	"github.com/programme-lv/taskzip/common/etrace"
 )
 
@@ -59,7 +60,7 @@ func AskChatGpt(prompt string, attached []File) (string, error) {
 
 	// 3) Responses API + file_search tool pointing at our vector store
 	params := responses.ResponseNewParams{
-		Model: openai.ChatModelGPT5Mini, // pick your model
+		Model: openai.ChatModelGPT5Nano, // pick your model
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: openai.String(prompt),
 		},
@@ -97,6 +98,40 @@ func AskChatGpt(prompt string, attached []File) (string, error) {
 	}
 
 	return md, nil
+}
+
+// AskChatGptSimple uses the Chat Completions SDK without attachments.
+// Returns trimmed assistant message content.
+func AskChatGptSimple(prompt string) (string, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return "", etrace.Trace(ErrOpenAIAPIKeyNotSet)
+	}
+	ctx := context.Background()
+	client := openai.NewClient(option.WithAPIKey(apiKey))
+
+	params := openai.ChatCompletionNewParams{
+		Model: shared.ChatModelGPT4_1,
+		Messages: []openai.ChatCompletionMessageParamUnion{{
+			OfUser: &openai.ChatCompletionUserMessageParam{
+				Content: openai.ChatCompletionUserMessageParamContentUnion{
+					OfString: openai.String(prompt),
+				},
+			},
+		}},
+	}
+
+	res, err := client.Chat.Completions.New(ctx, params)
+	if err != nil {
+		return "", etrace.Trace(etrace.Wrap("chat.completions.new", err))
+	}
+	if len(res.Choices) == 0 {
+		return "", etrace.Trace(errors.New("empty completion"))
+	}
+	if strings.TrimSpace(res.Choices[0].Message.Content) != "" {
+		return strings.TrimSpace(res.Choices[0].Message.Content), nil
+	}
+	return "", etrace.Trace(errors.New("no text content in completion"))
 }
 
 func safeFilename(fname string) string {
