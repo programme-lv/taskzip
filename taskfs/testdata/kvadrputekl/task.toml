@@ -43,6 +43,7 @@ id='kvadrputekl'
   points = 6
   description.lv = "Uzdevuma tekstā dotie trīs piemēri."
   description.en = "The three examples given in the problem statement."
+  vis_input = true
 
 [[subtasks]]
   points = 94

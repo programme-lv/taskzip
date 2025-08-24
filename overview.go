@@ -15,6 +15,7 @@ func printTaskOverview(task taskfs.Task) {
 	storyLangs := len(task.Statement.Stories)
 	subtasks := len(task.Statement.Subtasks)
 	subtaskLangs := countSubtaskLangs(task.Statement.Subtasks)
+	subtaskVisInput := countSubtaskVisInput(task.Statement.Subtasks)
 	examples := len(task.Statement.Examples)
 	exampleNotes := countExampleNotes(task.Statement.Examples)
 	images := len(task.Statement.Images)
@@ -23,7 +24,8 @@ func printTaskOverview(task taskfs.Task) {
 	fmt.Printf("\t- name: %s (%d langs)\n", defName, nameLangs)
 	fmt.Printf("\t- has readme: %t\n", readme)
 	fmt.Printf("\t- statement: story (%d langs), %d images\n", storyLangs, images)
-	fmt.Printf("\t- statement: %d subtasks (%d langs), %d examples (%d notes)\n", subtasks, subtaskLangs, examples, exampleNotes)
+	fmt.Printf("\t- statement: %d subtasks (%d langs, %d vis input)\n", subtasks, subtaskLangs, subtaskVisInput)
+	fmt.Printf("\t- statement: %d examples (%d notes)\n", examples, exampleNotes)
 	// origin overview
 	noteLangs := countNonEmptyLangs(task.Origin.Notes)
 	fmt.Printf("\t- origin: olymp %q, stage %q, org %q, year %s, lang %q, authors %d\n", task.Origin.Olympiad, task.Origin.OlyStage, task.Origin.Org, task.Origin.Year, task.Origin.Lang, len(task.Origin.Authors))
@@ -66,6 +68,16 @@ func countSubtaskLangs(subtasks []taskfs.Subtask) int {
 		}
 	}
 	return len(langs)
+}
+
+func countSubtaskVisInput(subtasks []taskfs.Subtask) int {
+	c := 0
+	for _, st := range subtasks {
+		if st.VisInput {
+			c++
+		}
+	}
+	return c
 }
 
 func countExampleNotes(examples []taskfs.Example) int {

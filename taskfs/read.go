@@ -544,7 +544,7 @@ func (dir TaskDirReader) Statement() (Statement, error) {
 		subtasks[i] = Subtask{
 			Desc:     subtaskToml.Description,
 			Points:   subtaskToml.Points,
-			VisInput: false,
+			VisInput: subtaskToml.VisInput,
 		}
 	}
 
