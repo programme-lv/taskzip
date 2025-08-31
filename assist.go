@@ -193,23 +193,47 @@ Auto-specified is also the behavior of the online judge if the query limit is ex
 Also don't include information on custom invocations as present in CMS (contest management system). I haven't implemented that yet.
 
 Furthermore, i have developed a custom way to specify table-formed examples for interactive tasks. It looks like a codeblock with language specified as json.
-Example (likely from a different task) (you can add a comments column too if there is one in the original):
+Example (likely from a different task) (you can remove the comments column if there isn't one in the original) (code setting for column makes the column a font-mono code block):
 '''json
 {
-    "component": "table",
-    "cols": [
-        {"header": "Ievaddati"},
-        {"header": "Izvaddati (jūsu programmas vaicājumi)"}
-    ],
-    "data": [
-        ["6", ""],
-        ["","3"],
-        ["1",""],
-        ["","5"],
-        ["-1",""],
-        ["","4"],
-        ["0",""]
-    ]
+"component": "table",
+"cols": [
+{"header": "Ievaddati", "code": true},
+{"header": "Izvaddati (jūsu programmas vaicājumi)","code": true},
+{"header": "Komentāri"}
+],
+"data": [
+[
+"8\n2 5\n8 7\n4 2\n1 8\n3 6\n3 7\n8 2\n",
+"",
+"Atbilst tekstā dotajam attēlam."
+],
+[
+"",
+"0 1 6",
+""
+],
+[
+"1",
+"",
+""
+],
+[
+"",
+"0 7 5",
+""
+],
+[
+"1",
+"",
+""
+],
+[
+"",
+"1 4 2",
+"Bojātais kabelis var būt vienīgi starp $2$ un $4$."
+]
+]
 }
 '''
 Note that JSON does not support multiline strings. If it's needed, use escaped newline.
