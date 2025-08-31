@@ -212,6 +212,8 @@ Example (likely from a different task) (you can add a comments column too if the
     ]
 }
 '''
+Note that JSON does not support multiline strings. If it's needed, use escaped newline.
+
 `
 	}
 
