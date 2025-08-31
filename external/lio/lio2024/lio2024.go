@@ -114,6 +114,7 @@ func base(parsedYaml ParsedLio2024Yaml) taskfs.Task {
 - [ ] should list the authors in origin in task.toml
 - [ ] determine difficulty based on # of ACs in contest
 - [ ] specify which subtasks should each model solution solve
+- [ ] make sure that the scoring type should be "min-groups"
 `
 
 	return task
