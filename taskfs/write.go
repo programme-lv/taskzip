@@ -432,10 +432,10 @@ func (w TaskWriter) formatStoryMd(story StoryMd, lang string) string {
 		content += story.Notes + "\n\n"
 	}
 
-	if story.Scoring != "" {
-		content += sectionNames["Scoring"] + "\n"
-		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Scoring"])) + "\n\n"
-		content += story.Scoring + "\n\n"
+	if story.Talk != "" {
+		content += sectionNames["Interaction"] + "\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Interaction"])) + "\n\n"
+		content += story.Talk + "\n\n"
 	}
 
 	if story.Example != "" {
@@ -444,10 +444,10 @@ func (w TaskWriter) formatStoryMd(story StoryMd, lang string) string {
 		content += story.Example + "\n\n"
 	}
 
-	if story.Talk != "" {
-		content += sectionNames["Interaction"] + "\n"
-		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Interaction"])) + "\n\n"
-		content += story.Talk + "\n"
+	if story.Scoring != "" {
+		content += sectionNames["Scoring"] + "\n"
+		content += strings.Repeat("-", utf8.RuneCountInString(sectionNames["Scoring"])) + "\n\n"
+		content += story.Scoring + "\n\n"
 	}
 
 	return strings.TrimSpace(content)
