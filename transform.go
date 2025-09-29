@@ -34,14 +34,11 @@ func transform(src string, dst string, format string, zipOut bool) error {
 		return etrace.Wrap("parsing task in transform cmd", err)
 	}
 
-	fmt.Printf("task: %+v\n", task.Origin)
 	if err := task.Validate(); err != nil {
 		if etrace.IsCritical(err) {
-			fmt.Printf("err: %+v\n", err)
 			msg := "validate task parsed"
 			return etrace.Wrap(msg, err)
 		}
-		fmt.Printf("not critical err: %+v\n", err)
 	}
 
 	if zipOut {
