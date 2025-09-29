@@ -231,9 +231,17 @@ func NewError(msg string) Error {
 	}
 }
 
-func Wrap(msg string, err error) Error {
+func Wrap(msg string, err error) error {
 	// if is Error, then we add to it's trace
 	// otherwise, new Error with critical severity
+	if _, ok := err.(interface{ Unwrap() []error }); ok {
+		errs := err.(interface{ Unwrap() []error }).Unwrap()
+		var res error
+		for _, e := range errs {
+			res = errors.Join(res, Wrap(msg, e))
+		}
+		return res
+	}
 
 	var existing Error
 	if errors.As(err, &existing) {
@@ -259,9 +267,17 @@ func Wrap(msg string, err error) Error {
 	}
 }
 
-func Trace(err error) Error {
+func Trace(err error) error {
 	// if is Error, then we add to it's trace
 	// otherwise, new Error with critical severity
+	if _, ok := err.(interface{ Unwrap() []error }); ok {
+		errs := err.(interface{ Unwrap() []error }).Unwrap()
+		var res error
+		for _, e := range errs {
+			res = errors.Join(res, Trace(e))
+		}
+		return res
+	}
 
 	var existing Error
 	if errors.As(err, &existing) {
@@ -298,6 +314,15 @@ func Trace(err error) Error {
 func IsCritical(err error) bool {
 	if err == nil {
 		return false
+	}
+
+	if _, ok := err.(interface{ Unwrap() []error }); ok {
+		errs := err.(interface{ Unwrap() []error }).Unwrap()
+		for _, e := range errs {
+			if IsCritical(e) {
+				return true
+			}
+		}
 	}
 
 	// Check all leaf errors in the error tree

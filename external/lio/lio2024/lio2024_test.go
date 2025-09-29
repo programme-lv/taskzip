@@ -22,6 +22,7 @@ func TestParsingLio2024TaskWithoutAChecker(t *testing.T) {
 
 	err = task.Validate()
 	// etrace.PrintDebug(err)
+	t.Logf("err: %+v", err)
 	require.False(t, etrace.IsCritical(err))
 	require.ErrorIs(t, err, taskfs.WarnStageNotSet)
 

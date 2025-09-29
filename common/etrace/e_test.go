@@ -21,7 +21,7 @@ func TestWrap_NonEtrace(t *testing.T) {
 	assert.Equal(t, "ctx: internal error", e.Error())
 	assert.True(t, errors.Is(e, base))
 	assert.Equal(t, base, errors.Unwrap(e))
-	dbg := e.Debug()
+	dbg := etrace.GetDebugStr(e)
 	assert.Contains(t, dbg, "trace:")
 	assert.Contains(t, dbg, "cause:")
 	assert.Contains(t, dbg, "ctx")
@@ -29,7 +29,7 @@ func TestWrap_NonEtrace(t *testing.T) {
 }
 
 func TestWrap_Existing(t *testing.T) {
-	e := etrace.New(etrace.Warning, "s")
+	var e error = etrace.New(etrace.Warning, "s")
 	e = etrace.Wrap("first", e)
 	e = etrace.Wrap("second", e)
 	assert.Equal(t, "second: first: s", e.Error())
@@ -41,7 +41,7 @@ func TestTrace_NonEtrace(t *testing.T) {
 	assert.Equal(t, "internal error", e.Error())
 	assert.True(t, errors.Is(e, base))
 	assert.Equal(t, base, errors.Unwrap(e))
-	dbg := e.Debug()
+	dbg := etrace.GetDebugStr(e)
 	assert.Contains(t, dbg, "trace:")
 	assert.Contains(t, dbg, "cause:")
 	assert.Contains(t, dbg, "b")
@@ -96,4 +96,21 @@ func TestIsCritical_WrappedCritical(t *testing.T) {
 	e := etrace.NewError("base error")
 	wrapped := etrace.Wrap("context", e)
 	assert.True(t, etrace.IsCritical(wrapped))
+}
+
+func TestMultipleDebug(t *testing.T) {
+	var e1 error = etrace.NewError("base error 1")
+	var e2 error = etrace.NewError("base error 2")
+	e1 = etrace.Trace(e1)
+	e2 = etrace.Trace(e2)
+	joined := errors.Join(e1, e2)
+	dbg := etrace.GetDebugStr(joined)
+	assert.Contains(t, dbg, "base error 1")
+	assert.Contains(t, dbg, "base error 2")
+	e3 := etrace.Wrap("outer wrap", joined)
+	dbg = etrace.GetDebugStr(e3)
+	t.Log(dbg)
+	assert.Contains(t, dbg, "outer wrap")
+	assert.Contains(t, dbg, "base error 1")
+	assert.Contains(t, dbg, "base error 2")
 }

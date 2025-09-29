@@ -87,12 +87,14 @@ func ParseLio2024Yaml(content []byte) (res ParsedLio2024Yaml, err error) {
 					return
 				}
 			}
-			if len(integers) != 1 {
-				err = fmt.Errorf("unsupported public groups length: %v", v)
-				return
-			}
-			for _, vv := range integers {
-				isGroupPublic[vv] = true
+			if len(integers) != 0 {
+				if len(integers) != 1 {
+					err = fmt.Errorf("unsupported public groups length: %v", v)
+					return
+				}
+				for _, vv := range integers {
+					isGroupPublic[vv] = true
+				}
 			}
 		}
 

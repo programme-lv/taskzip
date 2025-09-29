@@ -212,9 +212,13 @@ var (
 	ErrYearTooEarly        = etrace.NewError(fmt.Sprintf("year must be at least %d", MinYear))
 	ErrYearsNotConsecutive = etrace.NewError("origin years must be consecutive")
 	WarnYearInTheFuture    = etrace.NewWarning("origin year is in the future")
+	WarnYearNotSet         = etrace.NewWarning("origin year is not set")
 )
 
 func ValidateOriginYear(year string) error {
+	if year == "" {
+		return WarnYearNotSet
+	}
 	if !strings.Contains(year, "/") {
 		if len(year) != 4 {
 			return ErrInvalidYearFormat
