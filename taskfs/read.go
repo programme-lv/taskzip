@@ -478,18 +478,18 @@ func SplitByDividers(content string, dividers map[string]MdStorySection) ([]Pair
 			return nil, etrace.NewError(msg)
 		}
 		indices = append(indices, Pair[int, MdStorySection]{fst, section})
-		content = strings.ReplaceAll(content, dividerStr, "#")
+		content = strings.ReplaceAll(content, dividerStr, "#SPLIT#")
 	}
 	if len(indices) == 0 {
 		return []Pair[MdStorySection, string]{}, nil
 	}
-	for strings.Contains(content, "#-") {
-		content = strings.ReplaceAll(content, "#-", "#")
+	for strings.Contains(content, "#SPLIT#-") {
+		content = strings.ReplaceAll(content, "#SPLIT#-", "#SPLIT#")
 	}
 	sort.Slice(indices, func(i, j int) bool {
 		return indices[i].First < indices[j].First
 	})
-	contentSlice := strings.Split(content, "#")
+	contentSlice := strings.Split(content, "#SPLIT#")
 	contentSlice = fn.Filter(contentSlice, func(s string) bool {
 		return s != ""
 	})
