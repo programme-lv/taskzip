@@ -15,7 +15,8 @@ import (
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		errorr("error loading .env file")
+		wd, _ := os.Getwd()
+		fmt.Printf("Warning: .env file not found in %s\n", wd)
 	}
 
 	var rootCmd = &cobra.Command{
