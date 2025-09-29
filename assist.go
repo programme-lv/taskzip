@@ -292,7 +292,7 @@ func fillSubtaskDescriptions(task taskfs.Task) (taskfs.Task, error) {
 func collectTypFiles(task taskfs.Task) []assist.File {
 	files := []assist.File{}
 	for _, file := range task.Archive.Files {
-		if strings.HasSuffix(file.RelPath, ".typ") || strings.HasSuffix(file.RelPath, ".txt") {
+		if strings.HasSuffix(file.RelPath, ".typ") {
 			files = append(files, assist.File{
 				Content: file.Content,
 				Fname:   file.RelPath,
