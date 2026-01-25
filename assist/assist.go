@@ -111,7 +111,7 @@ func AskChatGptSimple(prompt string) (string, error) {
 	client := openai.NewClient(option.WithAPIKey(apiKey))
 
 	params := openai.ChatCompletionNewParams{
-		Model: shared.ChatModelGPT4_1,
+		Model: shared.ChatModelGPT5Nano,
 		Messages: []openai.ChatCompletionMessageParamUnion{{
 			OfUser: &openai.ChatCompletionUserMessageParam{
 				Content: openai.ChatCompletionUserMessageParamContentUnion{

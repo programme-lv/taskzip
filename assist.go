@@ -27,8 +27,8 @@ func assistFunc(src string) error {
 
 	warn("successful action will overwrite source; press Ctrl+C to exit")
 	workflows := []string{
-		"use .typ from archive to fill lv.md statement",
-		"use .typ from archive to fill subtask descriptions",
+		"use .typ from archive to fill lv.md statement via AI",
+		"use .typ from archive to fill subtask descriptions via AI",
 	}
 	info("available workflows:")
 	for i, workflow := range workflows {
@@ -141,7 +141,7 @@ Your task is to transfer an competitive programming task statement from Typst (.
 The resulting markdown may contain mathematical expressions. Convert the math expressions to KaTeX-compatible format using dollar signs ($...$).
 KaTeX use LaTeX math syntax and so "<=" is a an invalid expression. Use something like "leq" instead.
 
-Don't use fancy UTF characters like emojis or symbols such as "«".
+Don't use fancy UTF characters like emojis or symbols such as "«" or "≤".
 
 My markdown parser also does not support double (consecutive) dashes such as "--". If you need to use dashes, use single dash at a time.
 
@@ -311,7 +311,12 @@ Task: extract concise Latvian descriptions for each subtask (1..%d).
 No numbering, just the text. Keep very close to original text.
 
 Subtask descriptions should be markdown one-liners.
+
+The resulting markdown may contain mathematical expressions.
 KaTeX-compatible math expressions are allowed in dollar signs ($...$).
+KaTeX use LaTeX math syntax and so "<=" is a an invalid expression. Use something like "leq" instead.
+
+Don't use fancy UTF characters like emojis or symbols such as "«" or "≤".
 
 The following is a Typst (.typ) file to import descriptions from.
 
