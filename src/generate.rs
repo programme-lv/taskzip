@@ -1,16 +1,14 @@
 use crate::exec::compile_cpp;
 use crate::package::Package;
+use crate::run::{self, Limits};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 use tempfile::TempDir;
-use wait_timeout::ChildExt;
 
 const CACHE_VERSION: u32 = 1;
 
@@ -72,6 +70,7 @@ pub fn generate(
     force: bool,
     timeout: Duration,
 ) -> Result<GenerateReport> {
+    run::ensure_time()?;
     let manifest = pkg.root.join("testspec/tests.txt");
     if !manifest.is_file() {
         bail!("testspec/tests.txt missing");
@@ -199,32 +198,18 @@ fn run_generator(
     args: &[&str],
     timeout: Duration,
 ) -> Result<std::process::Output> {
-    let mut child = Command::new(gen_bin)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("run generator")?;
-    let status = match child.wait_timeout(timeout).context("run generator")? {
-        Some(status) => status,
-        None => {
-            child.kill().ok();
-            let _ = child.wait();
-            bail!("generator timed out");
-        }
+    let limits = Limits {
+        wall: timeout,
+        cpu: None,
     };
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    if let Some(mut out) = child.stdout.take() {
-        out.read_to_end(&mut stdout)?;
-    }
-    if let Some(mut err) = child.stderr.take() {
-        err.read_to_end(&mut stderr)?;
+    let out = run::run(gen_bin, args, None, limits)?;
+    if out.timed_out {
+        bail!("generator timed out");
     }
     Ok(std::process::Output {
-        status,
-        stdout,
-        stderr,
+        status: out.status,
+        stdout: out.stdout,
+        stderr: out.stderr,
     })
 }
 

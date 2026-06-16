@@ -1,10 +1,12 @@
 use crate::check::test_indices;
 use crate::package::Package;
+use crate::run::{self, Limits};
 use crate::score::{self, TestVerdict};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use tempfile::TempDir;
 
 pub struct SolutionRun {
@@ -38,6 +40,8 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
     if pkg.meta.solutions.is_empty() {
         return Ok(Vec::new());
     }
+    run::ensure_time()?;
+    let limits = solution_limits(pkg);
     let tests = test_indices(pkg)?;
     let work = TempDir::new()?;
     let judge = build_judge(pkg, &work)?;
@@ -45,7 +49,7 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
     for sol in &pkg.meta.solutions {
         let src = pkg.root.join("solutions").join(&sol.fname);
         let bin = compile_cpp(&src, &work.path().join(&sol.fname), &attached_sources(pkg)?)?;
-        let verdicts = run_on_tests(pkg, &bin, &judge, &tests)?;
+        let verdicts = run_on_tests(pkg, &bin, &judge, &tests, limits)?;
         let score = score::total_score_pkg(pkg, &verdicts)?;
         out.push(SolutionRun {
             fname: sol.fname.clone(),
@@ -99,11 +103,20 @@ fn attached_sources(pkg: &Package) -> Result<Vec<PathBuf>> {
         .collect()
 }
 
+fn solution_limits(pkg: &Package) -> Limits {
+    let cpu = Duration::from_millis(pkg.meta.testing.cpu_ms as u64);
+    Limits {
+        wall: run::wall_for_cpu(pkg.meta.testing.cpu_ms),
+        cpu: Some(cpu),
+    }
+}
+
 fn run_on_tests(
     pkg: &Package,
     solution: &Path,
     judge: &Judge,
     tests: &[u32],
+    limits: Limits,
 ) -> Result<Vec<TestVerdict>> {
     let work = TempDir::new()?;
     let mut out = Vec::new();
@@ -111,7 +124,7 @@ fn run_on_tests(
         let input = pkg.root.join(format!("tests/{id:03}i.txt"));
         let answer = pkg.root.join(format!("tests/{id:03}o.txt"));
         let ok = match judge.kind.as_str() {
-            "simple" => run_simple(solution, &input, &answer)?,
+            "simple" => run_simple(solution, &input, &answer, limits)?,
             "checker" => {
                 let outp = work.path().join(format!("{id:03}.out"));
                 run_checker(
@@ -120,9 +133,12 @@ fn run_on_tests(
                     &answer,
                     solution,
                     &outp,
+                    limits,
                 )?
             }
-            "interactor" => run_interactor(judge.interactor.as_ref().unwrap(), &input, solution)?,
+            "interactor" => {
+                run_interactor(judge.interactor.as_ref().unwrap(), &input, solution, limits)?
+            }
             other => bail!("unknown testing {other}"),
         };
         out.push(if ok { TestVerdict::Ok } else { TestVerdict::Wa });
@@ -130,16 +146,13 @@ fn run_on_tests(
     Ok(out)
 }
 
-fn run_simple(solution: &Path, input: &Path, answer: &Path) -> Result<bool> {
-    let stdout = Command::new(solution)
-        .stdin(fs::File::open(input)?)
-        .output()
-        .context("run solution")?;
-    if !stdout.status.success() {
+fn run_simple(solution: &Path, input: &Path, answer: &Path, limits: Limits) -> Result<bool> {
+    let out = run::run(solution, &[], Some(input.to_path_buf()), limits)?;
+    if run_failed(&out, limits) {
         return Ok(false);
     }
     let expected = fs::read(answer)?;
-    Ok(normalize(&stdout.stdout) == normalize(&expected))
+    Ok(normalize(&out.stdout) == normalize(&expected))
 }
 
 fn run_checker(
@@ -148,12 +161,10 @@ fn run_checker(
     answer: &Path,
     solution: &Path,
     output: &Path,
+    limits: Limits,
 ) -> Result<bool> {
-    let run = Command::new(solution)
-        .stdin(fs::File::open(input)?)
-        .output()
-        .context("run solution")?;
-    if !run.status.success() {
+    let run = run::run(solution, &[], Some(input.to_path_buf()), limits)?;
+    if run_failed(&run, limits) {
         return Ok(false);
     }
     fs::write(output, &run.stdout)?;
@@ -166,13 +177,26 @@ fn run_checker(
     Ok(status.success())
 }
 
-fn run_interactor(interactor: &Path, input: &Path, solution: &Path) -> Result<bool> {
-    let status = Command::new(interactor)
-        .arg(input)
-        .arg(solution)
-        .status()
-        .context("run interactor")?;
-    Ok(status.success())
+fn run_interactor(interactor: &Path, input: &Path, solution: &Path, limits: Limits) -> Result<bool> {
+    let out = run::run(
+        interactor,
+        &[input.to_str().unwrap(), solution.to_str().unwrap()],
+        None,
+        limits,
+    )?;
+    Ok(!run_failed(&out, limits))
+}
+
+fn run_failed(out: &run::Output, limits: Limits) -> bool {
+    if out.timed_out {
+        return true;
+    }
+    if let Some(cpu) = limits.cpu {
+        if run::cpu_exceeded(out.cpu, cpu) {
+            return true;
+        }
+    }
+    !out.status.success()
 }
 
 fn normalize(bytes: &[u8]) -> Vec<u8> {
