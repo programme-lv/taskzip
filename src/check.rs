@@ -24,6 +24,19 @@ const TOPICS: &[&str] = &[
     "interactive",
 ];
 
+pub fn preflight_generate(pkg: &Package) -> Result<()> {
+    check_id(&pkg.meta)?;
+    check_name(&pkg.meta)?;
+    check_testspec_manifest(pkg)?;
+    if !pkg.root.join("testspec/tests.txt").is_file() {
+        bail!("testspec/tests.txt missing");
+    }
+    if !pkg.root.join("testspec/generator.cpp").is_file() {
+        bail!("testspec/generator.cpp missing");
+    }
+    Ok(())
+}
+
 pub fn check(pkg: &Package) -> Result<Vec<String>> {
     let mut warns = Vec::new();
     check_id(&pkg.meta)?;

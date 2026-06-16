@@ -62,7 +62,7 @@ fn main() -> Result<()> {
             out,
         } => {
             let pkg = package::open(&package)?;
-            check::check(&pkg)?;
+            check::preflight_generate(&pkg)?;
             let dst = if write { pkg.root.join("tests") } else { out };
             let report = generate::generate(&pkg, &dst, force)?;
             println!(
