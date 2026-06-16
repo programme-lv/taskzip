@@ -31,6 +31,7 @@ pub fn check(pkg: &Package) -> Result<Vec<String>> {
     check_testing(pkg)?;
     check_scoring(pkg, &mut warns)?;
     check_tests(pkg)?;
+    check_testspec_manifest(pkg)?;
     check_examples(pkg)?;
     check_solutions(pkg)?;
     check_attached(pkg)?;
@@ -201,6 +202,16 @@ fn check_min_groups(pkg: &Package, tests: &[u32], warns: &mut Vec<String>) -> Re
 
 fn check_tests(pkg: &Package) -> Result<()> {
     test_indices(pkg)?;
+    Ok(())
+}
+
+fn check_testspec_manifest(pkg: &Package) -> Result<()> {
+    let path = pkg.root.join("testspec/tests.txt");
+    if !path.is_file() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path)?;
+    crate::generate::parse_manifest(&text)?;
     Ok(())
 }
 
@@ -420,7 +431,9 @@ fn known_paths(pkg: &Package) -> BTreeSet<String> {
 }
 
 fn is_allowed_extra(path: &str) -> bool {
-    path.starts_with("testspec/") || path.starts_with("archive/")
+    path.starts_with("testspec/")
+        || path.starts_with("archive/")
+        || path.starts_with(".taskzip/")
 }
 
 fn check_origin(meta: &TaskMeta, warns: &mut Vec<String>) -> Result<()> {

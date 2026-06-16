@@ -1,5 +1,6 @@
 use taskzip::check;
 use taskzip::exec;
+use taskzip::generate;
 use taskzip::package;
 
 use anyhow::Result;
@@ -24,6 +25,8 @@ enum Command {
         package: PathBuf,
         #[arg(long)]
         write: bool,
+        #[arg(long)]
+        force: bool,
         #[arg(long, default_value = ".taskzip/generated")]
         out: PathBuf,
     },
@@ -55,13 +58,19 @@ fn main() -> Result<()> {
         Command::Generate {
             package,
             write,
+            force,
             out,
         } => {
             let pkg = package::open(&package)?;
             check::check(&pkg)?;
             let dst = if write { pkg.root.join("tests") } else { out };
-            exec::generate(&pkg, &dst)?;
-            println!("ok: wrote inputs to {}", dst.display());
+            let report = generate::generate(&pkg, &dst, force)?;
+            println!(
+                "ok: wrote inputs to {} (cached {}, regenerated {})",
+                dst.display(),
+                report.cached,
+                report.regenerated
+            );
         }
         Command::ValidateTests { package } => {
             let pkg = package::open(&package)?;

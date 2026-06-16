@@ -14,60 +14,6 @@ pub struct SolutionRun {
     pub expected: Option<u32>,
 }
 
-pub fn generate(pkg: &Package, out: &Path) -> Result<()> {
-    let manifest = pkg.root.join("testspec/tests.txt");
-    if !manifest.is_file() {
-        bail!("testspec/tests.txt missing");
-    }
-    let gen = pkg.root.join("testspec/generator.cpp");
-    if !gen.is_file() {
-        bail!("testspec/generator.cpp missing");
-    }
-    fs::create_dir_all(out)?;
-    let work = TempDir::new()?;
-    let gen_bin = compile_cpp(&gen, &work.path().join("gen"), &[])?;
-    let text = fs::read_to_string(&manifest)?;
-    let mut idx = 1u32;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut parts = line.split_whitespace();
-        let cmd = parts.next().unwrap();
-        let out_path = out.join(format!("{idx:03}i.txt"));
-        match cmd {
-            "g" => {
-                let args: Vec<_> = parts.collect();
-                let output = Command::new(&gen_bin)
-                    .args(&args)
-                    .output()
-                    .context("run generator")?;
-                if !output.status.success() {
-                    bail!(
-                        "generator failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                }
-                fs::write(&out_path, &output.stdout)?;
-            }
-            "m" => {
-                let fname = parts
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("m needs filename"))?;
-                if fname.contains('/') {
-                    bail!("manual name must not contain /");
-                }
-                let src = pkg.root.join("testspec/manual").join(fname);
-                fs::copy(&src, &out_path).with_context(|| format!("copy manual {fname}"))?;
-            }
-            other => bail!("unknown tests.txt command {other}"),
-        }
-        idx += 1;
-    }
-    Ok(())
-}
-
 pub fn validate_tests(pkg: &Package) -> Result<()> {
     let validator = pkg.root.join("testspec/validator.cpp");
     if !validator.is_file() {
@@ -237,7 +183,7 @@ fn normalize(bytes: &[u8]) -> Vec<u8> {
     s
 }
 
-fn compile_cpp(src: &Path, out: &Path, extra: &[PathBuf]) -> Result<PathBuf> {
+pub(crate) fn compile_cpp(src: &Path, out: &Path, extra: &[PathBuf]) -> Result<PathBuf> {
     let mut cmd = Command::new("g++");
     cmd.arg("-O2").arg("-std=c++17").arg(src);
     for e in extra {
