@@ -75,7 +75,7 @@ pub fn generate(pkg: &Package, out: &Path, force: bool) -> Result<GenerateReport
     let gen_src = fs::read(&gen_src_path)?;
     let lines = parse_manifest(&fs::read_to_string(&manifest)?)?;
     fs::create_dir_all(out)?;
-    let cache_root = pkg.root.join(".taskzip");
+    let cache_root = package_cache_root(pkg)?;
     let cache_dir = cache_root.join("cache");
     fs::create_dir_all(&cache_dir)?;
     let mut cache = load_cache(&cache_root.join("generate-cache.json"))?;
@@ -234,6 +234,24 @@ fn prune_cache(cache: &mut CacheFile, count: u32, cache_dir: &Path) -> Result<()
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn user_cache_root() -> Result<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))
+        })
+        .ok_or_else(|| anyhow::anyhow!("no cache home"))?;
+    Ok(base.join("taskzip").join("generate"))
+}
+
+fn package_cache_root(pkg: &Package) -> Result<PathBuf> {
+    let root = fs::canonicalize(&pkg.root)
+        .with_context(|| format!("resolve {}", pkg.root.display()))?;
+    let id = sha256_hex(root.to_string_lossy().as_bytes());
+    Ok(user_cache_root()?.join(id))
 }
 
 #[cfg(test)]
