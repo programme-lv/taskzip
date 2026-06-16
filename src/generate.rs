@@ -5,9 +5,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 use tempfile::TempDir;
+use wait_timeout::ChildExt;
 
 const CACHE_VERSION: u32 = 1;
 
@@ -63,7 +66,12 @@ pub fn parse_manifest(text: &str) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-pub fn generate(pkg: &Package, out: &Path, force: bool) -> Result<GenerateReport> {
+pub fn generate(
+    pkg: &Package,
+    out: &Path,
+    force: bool,
+    timeout: Duration,
+) -> Result<GenerateReport> {
     let manifest = pkg.root.join("testspec/tests.txt");
     if !manifest.is_file() {
         bail!("testspec/tests.txt missing");
@@ -94,7 +102,7 @@ pub fn generate(pkg: &Package, out: &Path, force: bool) -> Result<GenerateReport
             report.cached += 1;
             continue;
         }
-        let bytes = produce_input(pkg, line, &work, &mut gen_bin)?;
+        let bytes = produce_input(pkg, line, &work, &mut gen_bin, timeout)?;
         fs::write(&cache_path, &bytes)?;
         fs::write(&out_path, &bytes)?;
         let input_sha256 = sha256_hex(&bytes);
@@ -157,6 +165,7 @@ fn produce_input(
     line: &str,
     work: &TempDir,
     gen_bin: &mut Option<PathBuf>,
+    timeout: Duration,
 ) -> Result<Vec<u8>> {
     let mut parts = line.split_whitespace();
     let cmd = parts.next().unwrap();
@@ -167,10 +176,7 @@ fn produce_input(
                 *gen_bin = Some(compile_cpp(&gen_path, &work.path().join("gen"), &[])?);
             }
             let args: Vec<_> = parts.collect();
-            let output = Command::new(gen_bin.as_ref().unwrap())
-                .args(&args)
-                .output()
-                .context("run generator")?;
+            let output = run_generator(gen_bin.as_ref().unwrap(), &args, timeout)?;
             if !output.status.success() {
                 bail!(
                     "generator failed: {}",
@@ -186,6 +192,40 @@ fn produce_input(
         }
         other => bail!("unknown tests.txt command {other}"),
     }
+}
+
+fn run_generator(
+    gen_bin: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<std::process::Output> {
+    let mut child = Command::new(gen_bin)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("run generator")?;
+    let status = match child.wait_timeout(timeout).context("run generator")? {
+        Some(status) => status,
+        None => {
+            child.kill().ok();
+            let _ = child.wait();
+            bail!("generator timed out");
+        }
+    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    if let Some(mut out) = child.stdout.take() {
+        out.read_to_end(&mut stdout)?;
+    }
+    if let Some(mut err) = child.stderr.take() {
+        err.read_to_end(&mut stderr)?;
+    }
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 fn load_cache(path: &Path) -> Result<CacheFile> {

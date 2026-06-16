@@ -6,6 +6,7 @@ use taskzip::package;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "taskzip", about = "TaskZip package tooling")]
@@ -29,6 +30,8 @@ enum Command {
         force: bool,
         #[arg(long, default_value = ".taskzip/generated")]
         out: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        timeout: u64,
     },
     ValidateTests {
         #[arg(default_value = ".")]
@@ -60,11 +63,13 @@ fn main() -> Result<()> {
             write,
             force,
             out,
+            timeout,
         } => {
             let pkg = package::open(&package)?;
             check::preflight_generate(&pkg)?;
             let dst = if write { pkg.root.join("tests") } else { out };
-            let report = generate::generate(&pkg, &dst, force)?;
+            let report =
+                generate::generate(&pkg, &dst, force, Duration::from_secs(timeout))?;
             println!(
                 "ok: wrote inputs to {} (cached {}, regenerated {})",
                 dst.display(),
