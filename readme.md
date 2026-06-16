@@ -1,35 +1,89 @@
-Taskzip: online judge task archive format and CLI.
-zip because usually the task directory resides within a .zip file.
+# taskzip
 
-CLI
-- `taskzip validate <path|.zip>`: read and validate a task
-- `taskzip transform -s <src|.zip> -d <dst> -f <lio2023|lio2024> [--zip]`: import and write
-- `taskzip assist <path|.zip>`: infers archive files to fill out missing information using AI: md statement; subtask descriptions.
+CLI for [TaskZip](https://github.com/programme-lv/taskzip) packages: check layout, generate tests from `testspec/`, validate inputs, and run registered solutions.
 
-1. read into a taskfs.Task
-2. prompt whether to fill md statement
-3. if yes, then
-Example run
-```
-task-zip validate /path/to/adapteri.zip
-INFO:	read task without errors
-	- id: adapteri
-	- name: Adapteru rinda (1 langs)
-	- has readme: false
-	- statement: story (1 langs), 2 images
-	- statement: 7 subtasks (1 langs), 2 examples (2 notes)
-	- origin: olymp "LIO", stage "", org "", year , authors 0
-	  notes (1 langs): Uzdevums no Latvijas 38. (2024./2025. m. g.) informātikas olimpiādes (LIO) valsts kārtas; vecākajai (11.-12. klašu) grupai.
-	- testing: checker, 60 tests
-	- scoring: min-groups, 100p, 18 groups
-	- solutions: 0
-	- archive: 0 files, orig pdfs: 0, illustr: false
-WARN:	validate origin: stage should be set if the olympiad is set (...)
+## Install (Arch Linux)
+
+```bash
+sudo pacman -S rust gcc
+git clone https://github.com/programme-lv/taskzip.git
+cd taskzip
+cargo install --path .
 ```
 
-For a directory layout example, see `taskfs/testdata/kvadrputekl`.
+Ensure `~/.cargo/bin` is on your `PATH`, then run:
 
-Repo structure:
-- external: various olympiad filesystem parsers for importing tasks
-- taskfs: read and write taskzip archive file structure, validation
-- assist: help from llms to e.g. convert previous statement to markdown
+```bash
+taskzip check path/to/task
+```
+
+## Commands
+
+```text
+taskzip check <package>
+taskzip generate <package> [--out DIR] [--write]
+taskzip validate-tests <package>
+taskzip run-solutions <package>
+taskzip verify <package>
+```
+
+`<package>` is a task directory or a `.zip` archive.
+
+`generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead.
+
+`verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
+
+## Layout
+
+```text
+<task-id>/
+  task.toml
+  tests/001i.txt
+  tests/001o.txt
+  statement/en.md
+  solutions/sol.cpp
+  testspec/generator.cpp
+  testspec/validator.cpp
+  testspec/tests.txt
+  testspec/manual/...
+```
+
+See the TaskZip specification for the full format.
+
+## Security
+
+`generate`, `validate-tests`, `run-solutions`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
+
+**TODO:** sandbox or isolate untrusted package code before running it.
+
+Only use these commands on packages you trust.
+
+## Tests
+
+From the repo root:
+
+```bash
+cargo test
+```
+
+`g++` is required for tests that compile and run the fixture solution (`run-solutions`, `verify`). Those tests skip themselves if `g++` is missing.
+
+```bash
+sudo pacman -S rust gcc   # if not installed yet
+cargo test
+```
+
+Run a single test:
+
+```bash
+cargo test check_fixture
+```
+
+## Example
+
+```bash
+taskzip check tests/fixtures/addtwo
+taskzip generate tests/fixtures/addtwo --out /tmp/gen
+taskzip run-solutions tests/fixtures/addtwo
+taskzip verify tests/fixtures/addtwo
+```

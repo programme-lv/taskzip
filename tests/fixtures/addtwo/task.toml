@@ -1,0 +1,18 @@
+taskzip = 1
+id = "addtwo"
+
+[name]
+en = "Add Two"
+
+[testing]
+type = "simple"
+cpu_ms = 1000
+mem_mib = 256
+
+[scoring]
+type = "test-sum"
+total = 2
+
+[[solutions]]
+fname = "add.cpp"
+score = 2
