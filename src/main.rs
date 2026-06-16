@@ -16,9 +16,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Check {
+        #[arg(default_value = ".")]
         package: PathBuf,
     },
     Generate {
+        #[arg(default_value = ".")]
         package: PathBuf,
         #[arg(long)]
         write: bool,
@@ -26,12 +28,15 @@ enum Command {
         out: PathBuf,
     },
     ValidateTests {
+        #[arg(default_value = ".")]
         package: PathBuf,
     },
     RunSolutions {
+        #[arg(default_value = ".")]
         package: PathBuf,
     },
     Verify {
+        #[arg(default_value = ".")]
         package: PathBuf,
     },
 }

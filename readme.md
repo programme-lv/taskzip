@@ -27,7 +27,7 @@ taskzip run-solutions <package>
 taskzip verify <package>
 ```
 
-`<package>` is a task directory or a `.zip` archive.
+`<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
 
 `generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead.
 

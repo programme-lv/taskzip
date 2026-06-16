@@ -8,6 +8,27 @@ fn bin() -> assert_cmd::Command {
 }
 
 #[test]
+fn check_dot_from_fixture_dir() {
+    bin()
+        .current_dir("tests/fixtures/addtwo")
+        .arg("check")
+        .arg(".")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: addtwo"));
+}
+
+#[test]
+fn check_default_package() {
+    bin()
+        .current_dir("tests/fixtures/addtwo")
+        .arg("check")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: addtwo"));
+}
+
+#[test]
 fn check_fixture() {
     bin()
         .arg("check")

@@ -23,11 +23,11 @@ pub fn open(path: &Path) -> Result<Package> {
         fs::read_to_string(&toml_path).with_context(|| format!("read {}", toml_path.display()))?;
     let meta = crate::meta::parse(&content)?;
     let files = list_files(&root)?;
-    if meta.id != root.file_name().and_then(|s| s.to_str()).unwrap_or("") {
+    if meta.id != dir_name(&root) {
         bail!(
-            "id {:?} != package dir {:?}",
+            "task id {:?} != directory name {:?}",
             meta.id,
-            root.file_name().unwrap_or_default()
+            dir_name(&root)
         );
     }
     Ok(Package {
@@ -39,9 +39,14 @@ pub fn open(path: &Path) -> Result<Package> {
     })
 }
 
+fn dir_name(path: &Path) -> &str {
+    path.file_name().and_then(|s| s.to_str()).unwrap_or("")
+}
+
 fn resolve_root(path: &Path) -> Result<(PathBuf, Option<TempDir>)> {
     if path.is_dir() {
-        return Ok((path.to_path_buf(), None));
+        let root = fs::canonicalize(path).with_context(|| format!("resolve {}", path.display()))?;
+        return Ok((root, None));
     }
     if path.extension().and_then(|s| s.to_str()) != Some("zip") {
         bail!("package must be a directory or .zip");
