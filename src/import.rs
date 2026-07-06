@@ -29,7 +29,8 @@ impl LioSource {
     fn open(path: &Path) -> Result<Self> {
         if path.is_dir() {
             return Ok(Self {
-                root: fs::canonicalize(path).with_context(|| format!("resolve {}", path.display()))?,
+                root: fs::canonicalize(path)
+                    .with_context(|| format!("resolve {}", path.display()))?,
                 _temp: None,
             });
         }
@@ -79,7 +80,10 @@ fn unzip_to_temp(path: &Path) -> Result<TempDir> {
 }
 
 fn single_root(path: &Path) -> Result<PathBuf> {
-    let entries: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    let entries: Vec<_> = fs::read_dir(path)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .collect();
     if entries.len() == 1 && entries[0].is_dir() {
         Ok(entries[0].clone())
     } else {
@@ -181,9 +185,6 @@ impl LioTask {
         out.push_str(&format!("type = {}\n", toml_string(&self.testing_kind)));
         out.push_str(&format!("cpu_ms = {}\n", self.cpu_ms));
         out.push_str(&format!("mem_mib = {}\n\n", self.mem_mib));
-        out.push_str("[scoring]\n");
-        out.push_str("type = \"min-groups\"\n");
-        out.push_str(&format!("total = {}\n\n", total));
         out.push_str("[origin]\n");
         out.push_str("olymp = \"LIO\"\n");
         out.push_str("lang = \"lv\"\n\n");
@@ -194,7 +195,11 @@ impl LioTask {
                 continue;
             }
             out.push_str("[[subtasks]]\n");
-            out.push_str(&format!("points = {}\n", points));
+            let groups = self.groups_for_subtask(i as u32)?;
+            if groups.is_empty() {
+                bail!("no groups for subtask {i}");
+            }
+            out.push_str(&format!("groups = {}\n", toml_string(&groups)));
             out.push_str(&format!(
                 "vis_input = {}\n",
                 self.has_visible_input() && i == 1
@@ -240,15 +245,18 @@ impl LioTask {
                 official += 1;
             }
         }
-        fs::create_dir_all(dest.join("archive"))?;
-        fs::write(dest.join("archive/testgroups.txt"), self.testgroups_text()?)?;
+        fs::write(dest.join("tgroups.txt"), self.tgroups_text()?)?;
         Ok(())
     }
 
-    fn testgroups_text(&self) -> Result<String> {
-        let mut out = String::new();
+    fn tgroups_text(&self) -> Result<String> {
         let official: Vec<_> = self.tests.iter().filter(|t| t.group != 0).collect();
-        for (i, g) in self.groups.iter().filter(|g| g.id != 0).enumerate() {
+        let groups: Vec<_> = self.groups.iter().filter(|g| g.id != 0).collect();
+        if groups.len() > 99 {
+            bail!("too many test groups");
+        }
+        let mut out = String::new();
+        for (idx, g) in groups.iter().enumerate() {
             let ids: Vec<_> = official
                 .iter()
                 .enumerate()
@@ -261,14 +269,23 @@ impl LioTask {
             let a = ids[0];
             let b = *ids.last().unwrap();
             let public = if g.public { " *" } else { "" };
-            out.push_str(&format!(
-                "{:02}: {a:03}-{b:03} {}p ({}){public}\n",
-                i + 1,
-                g.points,
-                g.subtask
-            ));
+            out.push_str(&format!("{:02}: {a:03}-{b:03} {}p{public}\n", idx + 1, g.points));
         }
         Ok(out)
+    }
+
+    fn groups_for_subtask(&self, subtask: u32) -> Result<String> {
+        let groups: Vec<_> = self.groups.iter().filter(|g| g.id != 0).collect();
+        let ids: Vec<_> = groups
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| g.subtask == subtask)
+            .map(|(idx, _)| idx as u32 + 1)
+            .collect();
+        if ids.is_empty() {
+            return Ok(String::new());
+        }
+        Ok(format!("{:02}-{:02}", ids[0], ids[ids.len() - 1]))
     }
 
     fn write_statement(&self, src: &Path, dest: &Path) -> Result<()> {

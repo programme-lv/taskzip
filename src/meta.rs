@@ -8,11 +8,9 @@ pub struct TaskMeta {
     pub id: String,
     pub name: HashMap<String, String>,
     pub testing: Testing,
-    pub scoring: Scoring,
     pub solutions: Vec<Solution>,
     pub attached: Vec<Attached>,
     pub subtasks: Vec<Subtask>,
-    pub groups: Vec<Group>,
     pub origin: Option<Origin>,
     pub metadata: Option<Metadata>,
     pub extensions: BTreeMap<String, toml::Table>,
@@ -25,14 +23,6 @@ pub struct Testing {
     pub kind: String,
     pub cpu_ms: u32,
     pub mem_mib: u32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Scoring {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub total: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,22 +43,12 @@ pub struct Attached {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Subtask {
-    pub points: u32,
+    pub points: Option<u32>,
+    pub tests: Option<String>,
+    pub groups: Option<String>,
     #[serde(default)]
     pub vis_input: bool,
     pub description: Option<HashMap<String, String>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Group {
-    pub id: u32,
-    pub tests: String,
-    pub points: u32,
-    pub mode: String,
-    pub subtask: Option<u32>,
-    #[serde(default)]
-    pub requires: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,11 +91,9 @@ pub fn parse(content: &str) -> Result<TaskMeta> {
         id: body.id,
         name: body.name,
         testing: body.testing,
-        scoring: body.scoring,
         solutions: body.solutions.unwrap_or_default(),
         attached: body.attached.unwrap_or_default(),
         subtasks: body.subtasks.unwrap_or_default(),
-        groups: body.groups.unwrap_or_default(),
         origin: body.origin,
         metadata: body.metadata,
         extensions,
@@ -129,11 +107,9 @@ struct CoreBody {
     id: String,
     name: HashMap<String, String>,
     testing: Testing,
-    scoring: Scoring,
     solutions: Option<Vec<Solution>>,
     attached: Option<Vec<Attached>>,
     subtasks: Option<Vec<Subtask>>,
-    groups: Option<Vec<Group>>,
     origin: Option<Origin>,
     metadata: Option<Metadata>,
 }

@@ -2,7 +2,7 @@ use crate::meta::TaskMeta;
 use crate::package::Package;
 use anyhow::{bail, Result};
 use regex::Regex;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 const TOPICS: &[&str] = &[
     "implementation",
@@ -42,8 +42,8 @@ pub fn check(pkg: &Package) -> Result<Vec<String>> {
     check_id(&pkg.meta)?;
     check_name(&pkg.meta)?;
     check_testing(pkg)?;
-    check_scoring(pkg, &mut warns)?;
-    check_tests(pkg)?;
+    let tests = test_indices(pkg)?;
+    check_scoring(pkg, &tests)?;
     check_testspec_manifest(pkg)?;
     check_examples(pkg)?;
     check_solutions(pkg)?;
@@ -107,115 +107,74 @@ fn check_testing(pkg: &Package) -> Result<()> {
     Ok(())
 }
 
-fn check_scoring(pkg: &Package, warns: &mut Vec<String>) -> Result<()> {
-    let s = &pkg.meta.scoring;
-    if s.total == 0 {
-        bail!("scoring.total must be positive");
+fn check_scoring(pkg: &Package, tests: &[u32]) -> Result<()> {
+    let meta = &pkg.meta;
+    if meta.subtasks.is_empty() {
+        if pkg.files.contains("tgroups.txt") {
+            bail!("tgroups.txt needs [[subtasks]]");
+        }
+        return Ok(());
     }
-    let tests = test_indices(pkg)?;
-    match s.kind.as_str() {
-        "test-sum" => {
-            if s.total as usize != tests.len() {
-                bail!("test-sum total {} != test count {}", s.total, tests.len());
+    let needs_groups = meta.subtasks.iter().any(|st| st.groups.is_some());
+    if !needs_groups && pkg.files.contains("tgroups.txt") {
+        bail!("unused tgroups.txt");
+    }
+    let groups = if needs_groups {
+        crate::score::read_tgroups(pkg)?
+    } else {
+        Vec::new()
+    };
+    let mut last_group = 0;
+    let mut next = 1;
+    for (i, st) in meta.subtasks.iter().enumerate() {
+        let has_tests = st.tests.is_some();
+        let has_groups = st.groups.is_some();
+        if has_tests == has_groups {
+            bail!("subtask {} needs tests or groups", i + 1);
+        }
+        if let Some(spec) = &st.tests {
+            let pts = st
+                .points
+                .ok_or_else(|| anyhow::anyhow!("subtask {} points missing", i + 1))?;
+            if pts == 0 {
+                bail!("subtask points must be positive");
+            }
+            next = check_range(spec, tests, next)?;
+        } else {
+            if st.points.is_some() {
+                bail!("subtask {} must not declare points", i + 1);
+            }
+            let spec = st.groups.as_ref().unwrap();
+            for id in parse_range(spec)? {
+                last_group = id;
+                let group = groups
+                    .iter()
+                    .find(|g| g.id == id)
+                    .ok_or_else(|| anyhow::anyhow!("missing test group {id:02}"))?;
+                next = check_range(&group.tests, tests, next)?;
             }
         }
-        "groups" => check_groups(pkg, &tests)?,
-        "min-groups" => check_min_groups(pkg, &tests, warns)?,
-        other => bail!("unknown scoring.type {:?}", other),
+    }
+    if next as usize != tests.len() + 1 {
+        bail!("subtasks do not cover all tests");
+    }
+    if last_group != groups.len() as u32 {
+        bail!("subtasks do not cover all test groups");
     }
     Ok(())
 }
 
-fn check_groups(pkg: &Package, tests: &[u32]) -> Result<()> {
-    let groups = &pkg.meta.groups;
-    if groups.is_empty() {
-        bail!("groups scoring needs [[groups]]");
+fn check_range(spec: &str, tests: &[u32], next: u32) -> Result<u32> {
+    let ids = parse_range(spec)?;
+    if ids.first() != Some(&next) {
+        bail!("test range {spec} starts out of order");
     }
-    let mut covered = HashSet::new();
-    let mut sum = 0u32;
-    for (i, g) in groups.iter().enumerate() {
-        if g.id != (i as u32 + 1) {
-            bail!("group id {} not consecutive", g.id);
+    for &id in &ids {
+        if !tests.contains(&id) {
+            bail!("test range {spec} refers to missing test {id:03}");
         }
-        if g.mode != "all" && g.mode != "each" {
-            bail!("group {} mode {:?}", g.id, g.mode);
-        }
-        for t in parse_range(&g.tests)? {
-            if !tests.contains(&t) {
-                bail!("group {} refers to missing test {t:03}", g.id);
-            }
-            if !covered.insert(t) {
-                bail!("test {t:03} in multiple groups");
-            }
-        }
-        sum += g.points;
     }
-    if covered.len() != tests.len() {
-        bail!("groups do not cover all tests");
-    }
-    if sum != pkg.meta.scoring.total {
-        bail!("group points sum {sum} != scoring.total");
-    }
-    Ok(())
-}
-
-fn check_min_groups(pkg: &Package, tests: &[u32], warns: &mut Vec<String>) -> Result<()> {
-    let origin = pkg.meta.origin.as_ref();
-    if origin.and_then(|o| o.olymp.as_deref()) != Some("LIO") {
-        warns.push("min-groups without origin.olymp = LIO".into());
-    }
-    if pkg.meta.subtasks.is_empty() {
-        bail!("min-groups needs [[subtasks]]");
-    }
-    let path = "archive/testgroups.txt";
-    if !pkg.files.contains(path) {
-        bail!("{path} missing for min-groups");
-    }
-    let text = crate::package::read_text(pkg, path)?;
-    let mut covered = HashSet::new();
-    let mut sum = 0u32;
-    let re = Regex::new(r"^(\d+): (\d{3})-(\d{3}) (\d+)p \((\d+)\)( \*)?$")?;
-    for (i, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let caps = re
-            .captures(line)
-            .ok_or_else(|| anyhow::anyhow!("testgroups line {}: bad format", i + 1))?;
-        let nn: u32 = caps[1].parse()?;
-        if nn != i as u32 + 1 {
-            bail!("testgroups group number {nn} not consecutive");
-        }
-        let a: u32 = caps[2].parse()?;
-        let b: u32 = caps[3].parse()?;
-        let pts: u32 = caps[4].parse()?;
-        let sub: u32 = caps[5].parse()?;
-        if sub as usize > pkg.meta.subtasks.len() || sub == 0 {
-            bail!("testgroups subtask {sub} invalid");
-        }
-        for t in a..=b {
-            if !tests.contains(&t) {
-                bail!("testgroups refers to missing test {t:03}");
-            }
-            if !covered.insert(t) {
-                bail!("test {t:03} in multiple groups");
-            }
-        }
-        sum += pts;
-    }
-    if covered.len() != tests.len() {
-        bail!("testgroups do not cover all tests");
-    }
-    if sum != pkg.meta.scoring.total {
-        bail!("testgroups points {sum} != scoring.total");
-    }
-    Ok(())
-}
-
-fn check_tests(pkg: &Package) -> Result<()> {
-    test_indices(pkg)?;
-    Ok(())
+    Ok(ids.last().unwrap() + 1)
 }
 
 fn check_testspec_manifest(pkg: &Package) -> Result<()> {
@@ -338,7 +297,7 @@ fn check_solutions(pkg: &Package) -> Result<()> {
             bail!("missing {path}");
         }
         if let Some(score) = s.score {
-            if score > pkg.meta.scoring.total {
+            if score > crate::score::task_total_pkg(pkg)? {
                 bail!("solution {} score out of range", s.fname);
             }
         }
@@ -436,6 +395,7 @@ fn known_paths(pkg: &Package) -> BTreeSet<String> {
             || p.starts_with("testspec/")
             || p == "checker.cpp"
             || p == "interactor.cpp"
+            || p == "tgroups.txt"
         {
             s.insert(p.clone());
         }
@@ -444,9 +404,7 @@ fn known_paths(pkg: &Package) -> BTreeSet<String> {
 }
 
 fn is_allowed_extra(path: &str) -> bool {
-    path.starts_with("testspec/")
-        || path.starts_with("archive/")
-        || path.starts_with(".taskzip/")
+    path.starts_with("testspec/") || path.starts_with("archive/") || path.starts_with(".taskzip/")
 }
 
 fn check_origin(meta: &TaskMeta, warns: &mut Vec<String>) -> Result<()> {
@@ -492,9 +450,6 @@ fn check_metadata(meta: &TaskMeta, warns: &mut Vec<String>) -> Result<()> {
 
 fn check_subtasks(meta: &TaskMeta) -> Result<()> {
     for st in &meta.subtasks {
-        if st.points == 0 {
-            bail!("subtask points must be positive");
-        }
         if let Some(d) = &st.description {
             for k in d.keys() {
                 bcp47(k)?;

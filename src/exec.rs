@@ -48,6 +48,7 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
     run::ensure_time()?;
     let limits = solution_limits(pkg);
     let tests = test_indices(pkg)?;
+    let total = score::task_total_pkg(pkg)?;
     let work = TempDir::new()?;
     let judge = build_judge(pkg, &work)?;
     let mut out = Vec::new();
@@ -59,7 +60,7 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
         out.push(SolutionRun {
             fname: sol.fname.clone(),
             score,
-            total: pkg.meta.scoring.total,
+            total,
             expected: sol.score,
         });
     }
@@ -105,10 +106,11 @@ fn model_solution(pkg: &Package, solution: Option<&str>) -> Result<String> {
         }
         return Ok(fname.to_string());
     }
+    let total = crate::score::task_total_pkg(pkg)?;
     pkg.meta
         .solutions
         .iter()
-        .find(|s| s.score == Some(pkg.meta.scoring.total))
+        .find(|s| s.score == Some(total))
         .map(|s| s.fname.clone())
         .ok_or_else(|| anyhow::anyhow!("model solution not found"))
 }

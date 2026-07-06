@@ -37,7 +37,7 @@
     TaskZip: A FS Layout for OJ Tasks
   ]
   #v(0.3em)
-  Draft version 0.4, 2026-07-06
+  Draft version 0.5, 2026-07-06
   #v(0.6em)
 // ]
 
@@ -205,12 +205,12 @@ The task total is the sum of all subtask points.
 Each `[[subtasks]]` entry MUST contain exactly one of:
 - `tests`, an inclusive test range in `AAA-BBB` format, together with a
   positive integer `points`; or
-- one or more `[[subtasks.groups]]` entries, each with `tests` and a
-  positive integer `points`.
+- `groups`, an inclusive test-group range in `GG-GG` format.
 
-In the second form, the scoring units are the groups, and the subtask's
-point value is the sum of its group points; the subtask itself MUST NOT
-declare `points` or `tests`.
+In the second form, scoring groups are read from `tgroups.txt` at the task
+root.
+The subtask's point value is the sum of the referenced group points; the
+subtask itself MUST NOT declare `points` or `tests`.
 Groups exist for finer-grained partial scoring within a subtask, as used by
 the Latvian Informatics Olympiad (@sec:lio).
 A minimal example with two subtasks, the second split into groups:
@@ -224,28 +224,36 @@ tests = "001-004"
 lv = "Mazie ierobežojumi."
 
 [[subtasks]]
+groups = "01-02"
 
 [subtasks.description]
 lv = "Lielie ierobežojumi."
-
-[[subtasks.groups]]
-points = 30
-tests = "005-007"
-public = true
-
-[[subtasks.groups]]
-points = 30
-tests = "008-010"
 ```
 
-Declared test ranges, reading subtasks and their groups in order, MUST
+```text
+# tgroups.txt
+01: 005-007 30p *
+02: 008-010 30p
+```
+
+Declared test ranges, reading subtasks and `tgroups.txt` in order, MUST
 partition the official tests: ascending, non-overlapping, and covering every
 test exactly once.
 Test indices inside one subtask or group are therefore always consecutive;
 tasks MUST be numbered so that this holds.
 
-The optional group field `public` (default false) marks a group whose
-verdict is shown to the contestant during the contest.
+`tgroups.txt` lines MUST have one of these forms:
+
+```text
+GG: AAA-BBB Pp
+GG: AAA-BBB Pp *
+```
+
+`GG` is a two-digit group id, consecutive from `01`.
+`AAA-BBB` is the official test range.
+`P` is the point value.
+The optional trailing `*` marks a group whose verdict is shown to the
+contestant during the contest.
 Subtasks have no public flag.
 
 The optional subtask field `vis_input` (default false) marks a subtask whose
@@ -1066,10 +1074,10 @@ onto the core format; it defines no additional on-disk files.
 LIO packages SHOULD set `origin.olymp` to `LIO`.
 LIO scores fine-grained test groups within broader subtasks.
 This maps directly onto subtask scoring (@sec:scoring): each LIO subtask
-becomes a `[[subtasks]]` entry, and its test groups become
-`[[subtasks.groups]]` entries with their own points.
+becomes a `[[subtasks]]` entry, and its test groups become lines in
+`tgroups.txt`.
 An LIO group whose verdict is visible to contestants during the contest
-sets `public = true`.
+gets a trailing `*`.
 Subtasks whose input data is published in the statement set
 `vis_input = true`.
 
