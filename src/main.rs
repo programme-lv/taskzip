@@ -28,10 +28,12 @@ impl std::fmt::Display for ExternalFormat {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Validate package structure and metadata without running task code")]
     Check {
         #[arg(default_value = ".")]
         package: PathBuf,
     },
+    #[command(about = "Build test inputs from testspec/tests.txt using generator or manual cases")]
     Generate {
         #[arg(default_value = ".")]
         package: PathBuf,
@@ -44,21 +46,24 @@ enum Command {
         #[arg(long, default_value_t = 60)]
         timeout: u64,
     },
-    #[command(about = "Transform external task format into TaskZip")]
+    #[command(about = "Preview an external-format import request; conversion is not implemented")]
     Import {
         #[arg(value_enum)]
         format: ExternalFormat,
         src: PathBuf,
         dest: PathBuf,
     },
+    #[command(about = "Run testspec/validator.cpp, when present, on every official input")]
     ValidateTests {
         #[arg(default_value = ".")]
         package: PathBuf,
     },
+    #[command(about = "Compile registered C++ solutions, run official tests, and print scores")]
     RunSolutions {
         #[arg(default_value = ".")]
         package: PathBuf,
     },
+    #[command(about = "Run check, validator, solutions, and compare expected solution scores")]
     Verify {
         #[arg(default_value = ".")]
         package: PathBuf,
