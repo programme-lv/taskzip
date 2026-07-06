@@ -37,7 +37,7 @@
     TaskZip: A FS Layout for OJ Tasks
   ]
   #v(0.3em)
-  Draft version 0.3, 2026-06-16
+  Draft version 0.4, 2026-07-06
   #v(0.6em)
 // ]
 
@@ -62,14 +62,11 @@ finished task without depending on contest-specific conventions.
 
 == Scope <sec:scope>
 
-As of this version, TaskZip describes a *finished* task package: official
-tests, statements, and metadata ready for import, archival, or publication.
+TaskZip describes a *finished* task: official tests, statements, and
+metadata ready for import, archival, or publication.
 It is not a development workspace for a task still being authored.
-
-The layout MAY archive the source specification for the official test set
-under `testspec/`, and `readme.md` MAY explain how the tests were designed.
-TaskZip does not require a standard command-line interface for using that
-material.
+A package MAY still carry its test-generation sources under `testspec/`
+and design notes in `readme.md`.
 Recommended tooling commands are described in @sec:tooling-cli, but the
 on-disk format does not depend on them.
 
@@ -115,23 +112,16 @@ Additionally, `attached/` and `archive/` MAY be present.
 - `attached/` contains files accessible by contestants, e.g. grader header files.
 - `archive/` contains task material that is not directly reflected in the TaskZip format, e.g. the original statement PDF.
 
-
 `checker.cpp` and `interactor.cpp` are described in @sec:judging and
 @sec:interactor respectively.
 Example file naming is described in @sec:examples.
-
 The file `readme.md` is described in @sec:readme.
 Extension directories and files, including `testspec/` and the
 `[ext.*]` namespaces, are described in @sec:extensions.
 
-Every file under the task root MUST have a defined role in this
-specification.
-A path MUST NOT be present if its purpose cannot be traced---for example to
-metadata, tests, statements, examples, a registered solution,
-contestant files under `attached/`, a test specification under
-`testspec/`, or archival material under `archive/`.
-Files outside `testspec/`, `attached/`, and `archive/` MUST NOT be
-dangling extras.
+Every file under the task root MUST have a role defined by this
+specification: metadata, tests, statements, examples, a registered
+solution, or a file under `attached/`, `testspec/`, or `archive/`.
 Import tooling MUST reject unrecognized paths.
 This prevents silent loss of information during import and export.
 
@@ -148,12 +138,12 @@ Unknown fields in any core table MUST be rejected.
 Extension data lives exclusively under `[ext.<name>]` sub-tables
 (@sec:extensions); unknown extension namespaces MUST NOT cause import
 failure, but SHOULD produce a warning.
-The field `taskzip` MUST be a non-negative integer giving the TaskZip
-format major version.
-This version of the specification defines version `1`; import tooling
-MUST reject any other value.
-The major version MUST be incremented only for breaking on-disk or metadata
-changes; additive optional fields stay within the same major version.
+
+The field `taskzip` gives the format major version.
+This specification defines version `1`; import tooling MUST reject any
+other value.
+The major version changes only for breaking on-disk or metadata changes;
+additive optional fields stay within the same major version.
 The field `id` MUST equal the task id used for the package directory or
 ZIP (limit `task-id` in @tbl:limits).
 
@@ -176,59 +166,27 @@ mem_mib = 256
 fname = "full.cpp"
 ```
 
-A package using extensions MAY declare them as a hint to tooling, but
-this field is not required for extension use:
-
-```toml
-taskzip = 1
-id = "lio2024kvadrputekl"
-# extensions = ["lio"]  # optional hint
-
-[ext.lio]
-# LIO-specific fields go here
-```
-
 === Names and languages
 
 The table `[name]` MUST contain at least one language entry.
 Language keys MUST be lowercased BCP 47 language tags, for example
 `lv`, `en`, `zh-hans`, `zh-hant`, `pt-br`, or `sr-latn`.
-A key consisting of only an ISO 639-1 code (e.g. `en`) is a valid BCP 47
-subtag; region and script subtags are lowercased and joined with a hyphen
-(e.g. `zh-hans`, `pt-br`).
 Import tooling MUST reject malformed BCP 47 keys wherever they appear:
 `[name]`, `origin.lang`, `[subtasks.description]`,
 `statement/*.md` filenames, `archive/statement-pdf/*.pdf` filenames, and
 example language blocks.
 
-Example with multiple script variants:
-
-```toml
-[name]
-lv = "Kvadrātputeklis"
-en = "Square Dust"
-zh-hans = "方尘"
-pt-br = "Poeira Quadrada"
-```
-
 === Testing <sec:metadata-testing>
 
-The field `testing.type` MUST be one of:
-
-```text
-simple
-checker
-interactor
-```
-
-`simple` uses exact output matching.
-`checker` uses a custom verifier (`checker.cpp`).
-`interactor` uses an online judge process (`interactor.cpp`).
+The field `testing.type` selects the judging mode and MUST be
+`simple`, `checker`, or `interactor`.
+`simple` compares output exactly.
+`checker` verifies output with a custom `checker.cpp` (@sec:judging).
+`interactor` runs the solution against an online judge process,
+`interactor.cpp` (@sec:interactor).
 The fields `testing.cpu_ms` and `testing.mem_mib` MUST be
 positive integers within these bounds: `cpu_ms` from 100 to 15000;
 `mem_mib` from 40 to 4096.
-Checker files are described in @sec:judging.
-Interactive tasks are described in @sec:interactor.
 
 === Scoring <sec:scoring>
 
@@ -298,19 +256,15 @@ prints the correct answers for that input.
 
 The optional `[subtasks.description]` sub-table holds a short per-language
 description; keys MUST be lowercased BCP 47 language tags.
-Normalized `statement/*.md` files MUST NOT contain manually written
-per-subtask descriptions that duplicate `[[subtasks]].description`.
-Contestant-facing renderers SHOULD generate the visible scoring section
-from structured metadata in `task.toml` and inject it into the final
-HTML or PDF output; such generated content is not part of
-`statement/*.md`.
-If an imported original statement contains subtask prose, import tooling
-SHOULD extract it into `[[subtasks]].description`, or preserve the
-unmodified original under `archive/` while keeping `statement/*.md`
-normalized.
-Partial scoring overview prose MAY appear under a `Vērtēšana` or
-`Scoring` heading in the statement when it does not duplicate
-structured per-subtask descriptions.
+These descriptions are the single source of truth:
+`statement/*.md` MUST NOT duplicate them, and renderers SHOULD generate the
+visible scoring section from this metadata instead.
+When an imported original statement contains subtask prose, import tooling
+SHOULD extract it into the descriptions, or keep the unmodified original
+under `archive/`.
+A general scoring overview MAY still appear in the statement under a
+`Scoring`/`Vērtēšana` heading when it does not duplicate the
+per-subtask descriptions.
 
 Each `[[solutions]]` entry with a non-empty `subtasks` list
 MUST refer only to existing 1-based subtask indices.
@@ -328,42 +282,31 @@ tests/002i.txt
 tests/002o.txt
 ```
 
-Test indices MUST be three digits, MUST start at `001`, and MUST be
-consecutive.
+Test indices MUST be three digits, starting at `001` and consecutive.
 Each input file MUST have a matching output file.
-The suffix `i` marks input and `o` marks output---the expected
-answer.
+The suffix `i` marks input and `o` marks output---the expected answer.
 `o` is used instead of `a` so that alphabetical listing places
 input before output for each index (`001i.txt` before `001o.txt`).
 
 A package MUST contain at least one official test pair.
-Files `tests/NNNi.txt` MUST be valid UTF-8 with LF line endings,
-MUST NOT be empty, and MUST NOT contain control characters except tab and
-newline, or bidi and zero-width formatting characters.
-Files `tests/NNNo.txt` MUST be valid UTF-8 with LF line endings and
-MUST NOT contain control characters except tab and newline, or bidi and
-zero-width formatting characters; output files MAY be empty (a valid
-answer to a problem can be an empty sequence, and checker-based tasks
-may not use the jury output at all).
+Test files MUST follow the _text rules_: valid UTF-8, LF line
+endings, and no control characters other than tab and newline, nor bidi or
+zero-width formatting characters.
+Input files MUST NOT be empty.
+Output files MAY be empty: a valid answer can be an empty sequence, and
+checker-based tasks may not use the jury output at all.
 
 == Checker <sec:judging>
 
-Some tasks require custom output verification.
-The mode is selected by `testing.type` in `task.toml`
-(@sec:metadata-testing).
+Some tasks accept more than one correct output and need a custom verifier.
+Such tasks set `testing.type = "checker"` and MUST have `checker.cpp` at
+the task root; other tasks MUST NOT have it.
 
-When `testing.type` is `simple`, `checker.cpp` MUST NOT be
-present at the task root.
-When it is `checker`, `checker.cpp` MUST exist at the task root.
-
-```text
-checker.cpp        iff testing.type = checker
-```
-
-Checker source files MUST be C++.
+Checker source files MUST be C++, at most 2 MiB each (limit
+`judging-cpp-size` in @tbl:limits).
 Implementations are expected to use `testlib.h`; see
-#link("https://codeforces.com/blog/entry/18431")[the testlib introduction].
-Each file MUST be at most 2 MiB (limit `judging-cpp-size` in @tbl:limits).
+#link("https://codeforces.com/blog/entry/18431")[the testlib introduction]
+and @app:testlib.
 
 == Statements
 
@@ -378,15 +321,8 @@ statement/en.md
 Each statement Markdown filename MUST be a lowercased BCP 47 language tag
 followed by `.md` (for example `lv.md`, `en.md`, `zh-hans.md`).
 Images referenced from the Markdown MUST be stored in the same directory
-and MUST use one of the following formats:
-- PNG (`.png`) for diagrams, screenshots, and other lossless figures.
-- JPEG (`.jpg` or `.jpeg`) for photographs and other lossy bitmaps.
-- WebP (`.webp`) for bitmap figures where a smaller file size is preferred.
-- SVG (`.svg`) for vector diagrams, subject to the sanitization rules
-  below.
-Other raster formats (for example `.gif`, `.bmp`, or `.tiff`) MUST NOT be
-used in `statement/`.
-Import tooling MUST reject packages that contain unsupported image files there.
+and MUST be PNG (lossless figures), JPEG (photographs), WebP, or SVG.
+Other formats (for example `.gif`, `.bmp`, or `.tiff`) MUST be rejected.
 
 SVG files MUST be sanitized before rendering.
 Sanitized SVG MUST NOT contain `<script>` elements, `on*` event
@@ -396,41 +332,28 @@ Import tooling MUST either sanitize SVG on import or reject unsanitized SVG.
 
 === Images
 
-Figures MUST use standard Markdown image syntax, not raw HTML
-`<img>` elements with captions carried in `alt`.
-The text in square brackets is the figure description (caption), not a
-substitute for `alt` on the image.#footnote[
-  The `alt` attribute is for a concise non-visual alternative; it MUST NOT be
-  repurposed to hold the figure caption shown to all readers.
-]
-
-Statement renderers SHOULD translate described images to HTML
-`<figure>`, with the description in `<figcaption>` and the
-bitmap in `<img>`.
-If a text alternative is required for accessibility, it MUST be provided
-separately from the caption and MUST NOT copy the full description into
-`alt`.
+Figures MUST use standard Markdown image syntax, not raw HTML `<img>`.
+The bracket text is the figure caption, shown to all readers; it MAY be
+omitted for decorative images.
+It is not the `alt` attribute: a non-visual text alternative, if needed,
+MUST be provided separately and MUST NOT copy the caption.
+Renderers SHOULD translate captioned images to HTML `<figure>` with
+`<figcaption>`.
 
 ```text
 ![The chimney may be built on any highlighted cell.](chimney.png)
 ![Overview of the grid.](grid.png){width=24em}
-```
-
-An optional attribute block MAY follow the image reference on the same line.
-The block MUST be braced and MAY set `width` using `em` units
-relative to the statement body font.
-For example `{width=24em}`.
-Widths MUST NOT use percentages, viewport units, or lengths tied to the page
-or parent box (for example `%`, `vw`, `cm`, or
-`px`).
-Renderers that do not support attribute blocks MUST ignore unsupported
-blocks and still render the image at its natural size.
-
-Images without a caption MAY omit the bracket text:
-
-```text
 ![](decoration.png)
 ```
+
+A braced attribute block MAY follow the image reference on the same line
+and MAY set `width` in `em` units relative to the statement body font.
+Widths MUST NOT use `%`, viewport units, or absolute lengths such as
+`cm` or `px`.
+Renderers that do not support attribute blocks MUST ignore them and render
+the image at its natural size.
+
+=== Headings
 
 Statement files SHOULD use simple underlined headings:
 
@@ -445,19 +368,10 @@ Output
 -----
 ```
 
-Localized headings MAY be used. For Latvian, common headings are
-`Stāsts`, `Ievaddati`, `Izvaddati`,
-`Piezīmes`, `Vērtēšana`, `Piemērs`, and
-`Komunikācija`.
-
-=== Structure <sec:statement-structure>
-
-The statement SHOULD contain `Story`/`Stāsts`,
-`Input`/`Ievaddati`, and `Output`/`Izvaddati`.
-Optional headings such as `Notes`/`Piezīmes` or
-`Scoring`/`Vērtēšana` MAY follow when needed.
-Partial scoring prose, if any, SHOULD go under `Vērtēšana` rather than
-under per-subtask headings in the statement.
+The statement SHOULD contain `Story`, `Input`, and `Output`;
+optional headings such as `Notes` or `Scoring` MAY follow.
+Headings MAY be localized---in Latvian: `Stāsts`, `Ievaddati`,
+`Izvaddati`, `Piezīmes`, `Vērtēšana`, `Piemērs`, and `Komunikācija`.
 Interactive tasks use different recommended sections; see @sec:interactor.
 
 === Math
@@ -470,11 +384,9 @@ inequality symbols or ASCII shortcuts such as `<=` inside math.
 === Authoring notes
 
 Statement authors SHOULD NOT include material that the hosting judge injects
-automatically, such as time and memory limits with a pointer to the contest
-system, interactive output-flush instructions, query-limit behaviour, or custom
-invocation help copied from other contest platforms.
-Keep such details in `task.toml`, site configuration, or
-`readme.md` instead.
+automatically: time and memory limits, output-flush instructions, query
+limits, or invocation help copied from other contest platforms.
+Such details belong in `task.toml`, site configuration, or `readme.md`.
 
 == Examples <sec:examples>
 
@@ -489,24 +401,19 @@ examples/001o.txt
 examples/001.md
 ```
 
-Example indices MUST be three digits, MUST start at `001`, and MUST be
-consecutive.
-At most 20 examples are allowed (through `020`).
-Each input file MUST have a matching output file.
-Example input and output files MUST NOT be empty.
-Import tooling MUST reject `examples/NNN.txt` trace files in core packages.
+Example indices MUST be three digits, starting at `001` and consecutive,
+with at most 20 examples (through `020`).
+Each input file MUST have a matching output file, and neither may be empty.
+Trace files (`examples/NNN.txt`) are reserved for interactive tasks and
+MUST be rejected otherwise.
 
 === Example notes
 
-Files `examples/NNNi.txt` and `examples/NNNo.txt` MUST be valid UTF-8
-with LF line endings.
-They MUST NOT contain control characters except tab and newline, or bidi and
-zero-width formatting characters.
-Import tooling MUST reject example data files that break these rules.
+Example data files MUST follow the text rules of @sec:tests.
 
 The file `examples/NNN.md` is optional and contains an explanation
 for that example.
-It MUST satisfy the same character rules as example data files.
+It MUST satisfy the same text rules.
 If the file contains ordinary Markdown, it is interpreted as being in the
 task's main language.
 
@@ -582,22 +489,16 @@ A maintainer SHOULD use `readme.md` to record:
 
 - *Contest context.*
   Background on the olympiad, contest, or edition where the task appeared,
-  including details that are awkward to encode in `origin.*`.
+  beyond what fits in `origin.*`.
 - *Contest outcomes.*
-  How the task performed: contestants, full and partial solvers, subtask
-  breakdowns, or similar notes.
-  Counts MAY be stored in `origin.contestants` and `origin.solvers`
-  when the task was used in a competition; `readme.md` MAY expand on them
-  in prose.
+  How the task performed: solver counts, subtask breakdowns, or similar
+  notes, expanding on `origin.contestants` and `origin.solvers`.
 - *Editorial.*
-  A short intended-solution sketch, common pitfalls, or notes on how subtasks
-  relate---material for maintainers and future authors, not for the public
-  statement.
+  A short intended-solution sketch, common pitfalls, or notes on how
+  subtasks relate---for maintainers, not for the public statement.
 - *Test generation.*
-  The idea behind the official tests: how cases were chosen, what each group
-  is meant to catch, and how `testspec/tests.txt` is meant to be used.
-  If test-generation source code is kept, it SHOULD be archived under
-  `testspec/`, and `readme.md` SHOULD summarize its role.
+  How cases were chosen, what each group is meant to catch, and how the
+  sources under `testspec/` were used.
 
 If present, `readme.md` MUST be valid UTF-8 with LF line endings.
 
@@ -607,8 +508,6 @@ The directory `archive/` is optional.
 It holds material worth keeping but not used for judging or publication:
 original statement PDFs, import notes, contest-specific auxiliary files,
 and similar artefacts.
-Archival of development material is allowed; invoking it is not specified
-(see @sec:scope).
 A website using TaskZip MAY store site-specific metadata here.
 
 === Statement PDFs
@@ -633,13 +532,6 @@ These PDFs are archival originals, not the canonical statement source;
 Import tooling MUST NOT use them as the primary statement source.
 Each PDF MUST be at most 20 MiB (limit `statement-pdf-size` in
 @tbl:limits).
-
-Other typical files:
-
-```text
-archive/illustration.png
-archive/import-metadata.json
-```
 
 = Extensions <sec:extensions>
 
@@ -698,10 +590,8 @@ If no such language is appropriate, English SHOULD be used.
 If `origin.lang` is set, a matching `statement/<lang>.md` SHOULD
 exist.
 
-The main language matters for files that MAY contain either one language or
-several languages.
-If only one unmarked text is present, it is interpreted as being written in
-the main language.
+Some files may hold text in one or several languages; a single unmarked
+text is interpreted as written in the main language.
 
 `origin.olymp` and `origin.org`, if present, MUST be non-empty
 strings of at most 10 uppercase letters or digits.
@@ -716,18 +606,13 @@ none are set.
 Narrative provenance notes belong in `readme.md`, not in
 `task.toml`.
 
-Optional `origin.contestants` and `origin.solvers` MAY record how many
-people attempted the task and how many fully solved it in the original
-contest.
-If present, `origin.contestants` and `origin.solvers` MUST be non-negative
-integers with `solvers` $<=$ `contestants`.
-They SHOULD be present only when the task was used in a timed competition
-with a defined contestant set.
-Omit them for practice problems, training tasks, or tasks never run under
-contest conditions.
-Solve rates from untimed or informal use are not comparable to contest
-outcomes: there is no time pressure, motivation differs, and the audience
-often includes more beginners.
+Optional `origin.contestants` and `origin.solvers` record how many people
+attempted the task and how many fully solved it in the original contest.
+If present, they MUST be non-negative integers with
+`solvers` $<=$ `contestants`.
+Use them only for tasks run as a timed competition with a defined
+contestant set; solve rates from practice or informal use are not
+comparable.
 
 == Classification metadata <sec:classification>
 
@@ -751,15 +636,14 @@ On import, the package MUST still be accepted and invalid slugs MUST be
 dropped (ignored), not stored.
 After import, at least one valid topic SHOULD remain; otherwise tooling SHOULD
 warn again.
-Choose values for the *minimum intended solution*, in line with
-`metadata.difficulty`.
 
 The field `metadata.difficulty` MUST be present when `[metadata]` is present
 and MUST be an integer from 1 to 5, as defined in @tab:difficulty.
-Rate the *minimum intended solution*, not a harder variant and not
-code length.
-It MUST NOT be inferred from contest solve rates; use `origin.contestants`
-and `origin.solvers` for that context instead (@sec:origin).
+Both slugs and difficulty rate the *minimum intended solution*, not a harder
+variant and not code length.
+Difficulty MUST NOT be inferred from contest solve rates; use
+`origin.contestants` and `origin.solvers` for that context instead
+(@sec:origin).
 
 #figure(
   caption: [Difficulty levels for `metadata.difficulty`.],
@@ -792,14 +676,6 @@ and `origin.solvers` for that context instead (@sec:origin).
   ),
 ) <tab:difficulty>
 
-Assign by minimum technique needed, using the level names in
-@tab:difficulty:
-- loops and arrays $arrow.r$ 1;
-  one standard algorithm $arrow.r$ 2;
-  modelling or combining ideas $arrow.r$ 3;
-  named advanced technique $arrow.r$ 4;
-  editorial-level for most olympiad students $arrow.r$ 5.
-
 == Solution expected scores <sec:solution-scores>
 
 Solution entries MAY record the score a known solution is expected to receive.
@@ -826,21 +702,15 @@ score during import.
 
 == Interactive tasks <sec:interactor>
 
-Interactive tasks set `testing.type = "interactor"` in `task.toml`.
-Generic judging infrastructure may not support online interaction; import
-tooling MUST still parse and validate the package structure, and MUST reject
-malformed interactive packages even if it cannot execute them.
+Interactive tasks set `testing.type = "interactor"` and MUST have
+`interactor.cpp` at the task root; `checker.cpp` MUST NOT be present.
+Judging infrastructure may not support online interaction, but import
+tooling MUST still validate the package structure and reject malformed
+interactive packages even if it cannot execute them.
 
-When `testing.type` is `interactor`, `interactor.cpp` MUST exist at the
-task root and `checker.cpp` MUST NOT be present.
-
-```text
-interactor.cpp     iff testing.type = interactor
-```
-
-Interactor source files MUST be C++.
-Implementations are expected to use `testlib.h`; see @app:testlib.
-Each file MUST be at most 2 MiB (limit `judging-cpp-size` in @tbl:limits).
+Interactor source files MUST be C++, at most 2 MiB each (limit
+`judging-cpp-size` in @tbl:limits), and are expected to use `testlib.h`
+(@app:testlib).
 
 The statement SHOULD contain `Story`/`Stāsts`,
 `Communication`/`Komunikācija`, and `Example`/`Piemērs`.
@@ -896,11 +766,8 @@ example files.
 Optional notes for a step or example belong in `examples/NNN.md`, not in
 the trace file.
 
-Files `examples/NNN.txt` MUST be valid UTF-8 with LF line endings.
-They MUST NOT contain control characters except tab and newline, or bidi and
-zero-width formatting characters.
-A single trace file MUST be at most 64 KiB (limit `example-trace-size` in
-@tbl:limits).
+Trace files MUST follow the text rules of @sec:tests and MUST be at most
+64 KiB each (limit `example-trace-size` in @tbl:limits).
 
 == Test specification files <sec:testspec>
 
@@ -951,11 +818,9 @@ separators.
 For example, `m 002.txt` records a manual test stored at
 `testspec/manual/002.txt`.
 
-TaskZip does not define the output filename assigned to each generated or
-copied test, nor does it define the command used to run the generator or
-validator.
-Tooling MAY use `testspec/tests.txt` as a portable recipe, but exact execution
-remains implementation-defined.
+`testspec/tests.txt` is a portable recipe, not a build script:
+how the generator and validator are compiled and run, and where outputs
+land, is implementation-defined.
 
 = Tooling <sec:tooling>
 
@@ -980,16 +845,14 @@ satisfy the problem constraints.
 == Limits <sec:limits>
 
 Normative size and count limits are listed in @app:limits (@tbl:limits).
-Import tooling MUST reject packages that exceed any listed limit, contain
-unrecognized or dangling files, contain malformed metadata or an unsupported
-`taskzip` version, have no official tests or statements, have
-incomplete or mismatched example files for the declared `testing.type`,
-have non-consecutive indices, contain forbidden or empty input content in
-official test files, have unsanitized SVG in `statement/`, have unknown
-fields in core tables, or have inconsistent subtask scoring (@sec:scoring).
+Import tooling MUST reject packages that exceed any listed limit or violate
+a MUST rule from the earlier sections: unrecognized paths, malformed
+metadata, an unsupported `taskzip` version, missing tests or statements,
+mismatched example files, non-consecutive indices, forbidden test content,
+unsanitized SVG, unknown fields in core tables, or inconsistent subtask
+scoring (@sec:scoring).
 The `testspec-files` limit is formula-based: at most `tests-count + 200`
 files under `testspec/`.
-Interactive-task consistency is checked as in @sec:interactor.
 
 == Suggested executable <sec:tooling-cli>
 
@@ -1016,14 +879,10 @@ official test inputs from generated and manual cases.
 Manifest line *N* SHOULD produce test `NNNi.txt`.
 It SHOULD NOT overwrite `tests/` unless the user explicitly requests that.
 
-`taskzip tests generate` MAY cache assembled inputs under `.taskzip/` in the
-package.
-For each manifest line, the cache key SHOULD incorporate the relevant source
-material (`testspec/generator.cpp` for `g` lines, the manual file for `m`
-lines) and the full manifest line text.
-The cached value SHOULD be a checksum of the assembled input bytes.
-A line SHOULD be regenerated only when its cache entry is missing or the key
-or checksum no longer matches.
+`taskzip tests generate` MAY cache assembled inputs.
+The cache key for a manifest line SHOULD cover the line text and its source
+material (the generator source for `g` lines, the manual file for `m`
+lines), so a line is regenerated only when either changes.
 Implementations MAY expose a flag to bypass the cache.
 
 `taskzip tests answers` SHOULD run a model solution on generated or official
@@ -1053,30 +912,21 @@ run registered solutions, and compare each received score with the expected
 
 == AI-assisted workflows
 
-This section describes workflows that tools MAY offer around TaskZip.
-They are not part of the on-disk format, but the layout is intended to make
-them practical.
+Tools MAY offer AI-assisted workflows around TaskZip; the layout is
+intended to make them practical.
 All machine-generated content SHOULD be reviewed before publication.
 
-- *Tag generation.*
-  Propose `metadata.topics`, `metadata.techniques`, and
-  `metadata.data_structures` from the statement, examples, and existing
-  solutions, using only @app:vocab slugs.
-- *Statement translation.*
-  Draft `statement/<lang>.md` files from the task's main language or
-  from a PDF or Typst source stored under `archive/`, preserving
-  headings, math, and image references.
-- *Subtask description import.*
-  Draft `[subtasks.description]` entries in `task.toml` from an
-  original statement source under `archive/`, without copying them into
-  `statement/*.md`.
-- *Model solution generation.*
-  Produce candidate files under `solutions/` and register them in
-  `task.toml`; run against official tests before trusting the output.
-- *Task import.*
-  Convert tasks from foreign directory layouts, contest exports, or legacy
-  archives into a conforming package, filling `task.toml` and mapping
-  tests, statements, and provenance into `origin`.
+- *Tag generation:* propose classification slugs (@app:vocab) from the
+  statement, examples, and solutions.
+- *Statement translation:* draft `statement/<lang>.md` files from the main
+  language or from sources under `archive/`, preserving headings, math,
+  and image references.
+- *Subtask descriptions:* draft `[subtasks.description]` entries from an
+  original statement under `archive/`.
+- *Model solutions:* produce candidates under `solutions/` and register
+  them; run against official tests before trusting the output.
+- *Task import:* convert foreign layouts and contest exports into a
+  conforming package, mapping provenance into `origin`.
 
 #pagebreak(weak: true)
 #set page(columns: 1)
