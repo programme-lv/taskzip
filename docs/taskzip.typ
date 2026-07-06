@@ -3,10 +3,10 @@
 )
 #set page(
   paper: "a4",
-  margin: 1.8cm,
+  margin: 1cm,
   columns: 2,
 )
-#set text(size: 10pt, lang: "en")
+#set text(size: 11pt, lang: "en")
 #set heading(numbering: "1.1")
 #set par(justify: true, first-line-indent: 0pt, spacing: 1.25em)
 #show heading: set block(above: 1.2em, below: 0.6em)
