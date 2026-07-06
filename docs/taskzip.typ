@@ -1023,6 +1023,7 @@ their exact flags, build system, sandboxing model, or output filenames:
 ```text
 taskzip check <package>
 taskzip tests generate <package>
+taskzip tests answers <package>
 taskzip tests validate <package>
 taskzip run-solutions <package>
 taskzip verify <package>
@@ -1045,6 +1046,12 @@ The cached value SHOULD be a checksum of the assembled input bytes.
 A line SHOULD be regenerated only when its cache entry is missing or the key
 or checksum no longer matches.
 Implementations MAY expose a flag to bypass the cache.
+
+`taskzip tests answers` SHOULD run a model solution on generated or official
+test inputs and write matching answer files.
+Implementations SHOULD use a registered full-score solution by default and MAY
+expose a flag to select a specific solution file.
+For interactive tasks, this command SHOULD be rejected.
 
 `taskzip tests validate` SHOULD compile and run `testspec/validator.cpp`, if
 present, against official or generated test inputs.

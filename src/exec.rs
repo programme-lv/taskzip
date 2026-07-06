@@ -16,6 +16,11 @@ pub struct SolutionRun {
     pub expected: Option<u32>,
 }
 
+pub struct AnswerReport {
+    pub solution: String,
+    pub written: u32,
+}
+
 pub fn validate_tests(pkg: &Package) -> Result<()> {
     let validator = pkg.root.join("testspec/validator.cpp");
     if !validator.is_file() {
@@ -59,6 +64,79 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
         });
     }
     Ok(out)
+}
+
+pub fn generate_answers(
+    pkg: &Package,
+    input_dir: &Path,
+    out_dir: &Path,
+    solution: Option<&str>,
+) -> Result<AnswerReport> {
+    if pkg.meta.testing.kind == "interactor" {
+        bail!("answers not supported for interactor");
+    }
+    run::ensure_time()?;
+    let fname = model_solution(pkg, solution)?;
+    let work = TempDir::new()?;
+    let src = pkg.root.join("solutions").join(&fname);
+    let bin = compile_cpp(&src, &work.path().join(&fname), &attached_sources(pkg)?)?;
+    fs::create_dir_all(out_dir)?;
+    let mut written = 0;
+    for (id, input) in input_files(input_dir)? {
+        let out = run::run(&bin, &[], Some(input), solution_limits(pkg))?;
+        if run_failed(&out, solution_limits(pkg)) {
+            bail!("solution failed on {id:03}");
+        }
+        fs::write(out_dir.join(format!("{id:03}o.txt")), out.stdout)?;
+        written += 1;
+    }
+    Ok(AnswerReport {
+        solution: fname,
+        written,
+    })
+}
+
+fn model_solution(pkg: &Package, solution: Option<&str>) -> Result<String> {
+    if let Some(fname) = solution {
+        let path = format!("solutions/{fname}");
+        if !pkg.files.contains(&path) {
+            bail!("missing {path}");
+        }
+        return Ok(fname.to_string());
+    }
+    pkg.meta
+        .solutions
+        .iter()
+        .find(|s| s.score == Some(pkg.meta.scoring.total))
+        .map(|s| s.fname.clone())
+        .ok_or_else(|| anyhow::anyhow!("model solution not found"))
+}
+
+fn input_files(input_dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(input_dir).with_context(|| format!("read {}", input_dir.display()))? {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if let Some(id) = input_id(name) {
+            files.push((id, path));
+        }
+    }
+    files.sort_by_key(|(id, _)| *id);
+    if files.is_empty() {
+        bail!("no input files in {}", input_dir.display());
+    }
+    Ok(files)
+}
+
+fn input_id(name: &str) -> Option<u32> {
+    let id = name.strip_suffix("i.txt")?;
+    if id.len() == 3 && id.chars().all(|c| c.is_ascii_digit()) {
+        id.parse().ok()
+    } else {
+        None
+    }
 }
 
 struct Judge {

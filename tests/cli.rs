@@ -88,6 +88,35 @@ fn generate_rejects_comment_manifest() {
         .stderr(predicate::str::contains("comment"));
 }
 
+#[test]
+fn answers_fixture() {
+    if std::process::Command::new("g++")
+        .arg("--version")
+        .status()
+        .is_err()
+    {
+        return;
+    }
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("addtwo");
+    let out = dir.path().join("answers");
+    fs::create_dir_all(&root).unwrap();
+    copy_dir("tests/fixtures/addtwo", &root);
+    bin()
+        .arg("tests")
+        .arg("answers")
+        .arg(&root)
+        .arg("--in")
+        .arg(root.join("tests"))
+        .arg("--out")
+        .arg(&out)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wrote 2 answers"));
+    assert_eq!(fs::read_to_string(out.join("001o.txt")).unwrap(), "3\n");
+    assert_eq!(fs::read_to_string(out.join("002o.txt")).unwrap(), "30\n");
+}
+
 fn copy_dir(src: &str, dst: &std::path::Path) {
     for entry in fs::read_dir(src).unwrap() {
         let entry = entry.unwrap();

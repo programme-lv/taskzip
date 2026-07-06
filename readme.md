@@ -22,6 +22,7 @@ taskzip check path/to/task
 ```text
 taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
+taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
 taskzip run-solutions <package>
 taskzip verify <package>
@@ -30,6 +31,8 @@ taskzip verify <package>
 `<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
 
 `tests generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead. Manifest line *N* becomes test `NNN`; blank lines and `#` comments are rejected. Cached inputs live under `$XDG_CACHE_HOME/taskzip/generate/` (or `~/.cache/taskzip/generate/`); a line is regenerated only when its cache key (generator or manual source plus manifest line) or stored checksum changes. Use `--force` to bypass the cache.
+
+`tests answers` runs the model solution on `NNNi.txt` inputs from `--in` (default `.taskzip/generated`) and writes matching `NNNo.txt` files to `--out` (default: same directory). Use `--write` to read from and write to `tests/`. The model solution defaults to the first `[[solutions]]` entry whose `score` equals `scoring.total`; use `--solution` to choose one explicitly.
 
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 
@@ -52,7 +55,7 @@ See the TaskZip specification for the full format.
 
 ## Security
 
-`tests generate`, `tests validate`, `run-solutions`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
+`tests generate`, `tests answers`, `tests validate`, `run-solutions`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
 
 **TODO:** sandbox or isolate untrusted package code before running it.
 
@@ -84,6 +87,7 @@ cargo test check_fixture
 ```bash
 taskzip check tests/fixtures/addtwo
 taskzip tests generate tests/fixtures/addtwo --out /tmp/gen
+taskzip tests answers tests/fixtures/addtwo --in /tmp/gen
 taskzip run-solutions tests/fixtures/addtwo
 taskzip verify tests/fixtures/addtwo
 ```

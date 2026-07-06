@@ -72,6 +72,19 @@ enum TestsCommand {
         #[arg(long, default_value_t = 60)]
         timeout: u64,
     },
+    #[command(about = "Run the model solution to write answer files for generated inputs")]
+    Answers {
+        #[arg(default_value = ".")]
+        package: PathBuf,
+        #[arg(long = "in", default_value = ".taskzip/generated")]
+        input: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        solution: Option<String>,
+    },
     #[command(about = "Run testspec/validator.cpp, when present, on every official input")]
     Validate {
         #[arg(default_value = ".")]
@@ -109,6 +122,13 @@ fn run_tests(cmd: TestsCommand) -> Result<()> {
             out,
             timeout,
         } => run_generate(package, write, force, out, timeout),
+        TestsCommand::Answers {
+            package,
+            input,
+            out,
+            write,
+            solution,
+        } => run_answers(package, input, out, write, solution),
         TestsCommand::Validate { package } => run_validate(package),
     }
 }
@@ -138,6 +158,30 @@ fn run_validate(package: PathBuf) -> Result<()> {
     check::check(&pkg)?;
     exec::validate_tests(&pkg)?;
     println!("ok: validator passed");
+    Ok(())
+}
+
+fn run_answers(
+    package: PathBuf,
+    input: PathBuf,
+    out: Option<PathBuf>,
+    write: bool,
+    solution: Option<String>,
+) -> Result<()> {
+    let pkg = package::open(&package)?;
+    let input = if write { pkg.root.join("tests") } else { input };
+    let out = if write {
+        pkg.root.join("tests")
+    } else {
+        out.unwrap_or_else(|| input.clone())
+    };
+    let report = exec::generate_answers(&pkg, &input, &out, solution.as_deref())?;
+    println!(
+        "ok: wrote {} answers to {} using {}",
+        report.written,
+        out.display(),
+        report.solution
+    );
     Ok(())
 }
 
