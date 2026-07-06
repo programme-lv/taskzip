@@ -24,6 +24,7 @@ taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
+taskzip import lio2024 <src> <dest>
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
@@ -33,6 +34,8 @@ taskzip verify <package>
 `tests generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead. Manifest line *N* becomes test `NNN`; blank lines and `#` comments are rejected. Cached inputs live under `$XDG_CACHE_HOME/taskzip/generate/` (or `~/.cache/taskzip/generate/`); a line is regenerated only when its cache key (generator or manual source plus manifest line) or stored checksum changes. Use `--force` to bypass the cache.
 
 `tests answers` runs the model solution on `NNNi.txt` inputs from `--in` (default `.taskzip/generated`) and writes matching `NNNo.txt` files to `--out` (default: same directory). Use `--write` to read from and write to `tests/`. The model solution defaults to the first `[[solutions]]` entry whose `score` equals `scoring.total`; use `--solution` to choose one explicitly.
+
+`import lio2024` converts an LIO 2024 task directory or `.zip` with `task.yaml` and `tests_archive` into a TaskZip package. If `<dest>` is not named like the imported task id, the package is written under `<dest>/<id>`.
 
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 

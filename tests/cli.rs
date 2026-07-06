@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
+use std::io::Write;
 use tempfile::tempdir;
 
 fn bin() -> assert_cmd::Command {
@@ -115,6 +116,88 @@ fn answers_fixture() {
         .stdout(predicate::str::contains("wrote 2 answers"));
     assert_eq!(fs::read_to_string(out.join("001o.txt")).unwrap(), "3\n");
     assert_eq!(fs::read_to_string(out.join("002o.txt")).unwrap(), "30\n");
+}
+
+#[test]
+fn import_lio2024_fixture() {
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("tiny");
+    let dest_parent = dir.path().join("tiny-out");
+    let dest = dest_parent.join("tiny");
+    fs::create_dir_all(src.join("testi")).unwrap();
+    fs::create_dir_all(src.join("teksts")).unwrap();
+    fs::create_dir_all(src.join("risin")).unwrap();
+    fs::write(
+        src.join("task.yaml"),
+        "name: 'tiny'\ntitle: 'Tiny Task'\ntime_limit: 0.5\nmemory_limit: 256\ntests_archive: './testi/tests.zip'\nsubtask_points: [0, 100]\ntests_groups:\n  - groups: 0\n    points: 0\n    public: true\n    subtask: 0\n  - groups: 1\n    points: 100\n    public: true\n    subtask: 1\n",
+    )
+    .unwrap();
+    fs::write(src.join("teksts/tiny.typ"), "Story\n").unwrap();
+    fs::write(src.join("risin/ok.cpp"), "int main(){}\n").unwrap();
+    write_lio_zip(&src.join("testi/tests.zip"));
+    bin()
+        .arg("import")
+        .arg("lio2024")
+        .arg(&src)
+        .arg(&dest_parent)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: imported lio2024"));
+    bin()
+        .arg("check")
+        .arg(&dest)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: tiny"));
+    let src_zip = dir.path().join("tiny.zip");
+    let zip_dest = dir.path().join("zip-out");
+    write_source_zip(&src, &src_zip);
+    bin()
+        .arg("import")
+        .arg("lio2024")
+        .arg(&src_zip)
+        .arg(&zip_dest)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: imported lio2024"));
+    bin()
+        .arg("check")
+        .arg(zip_dest.join("tiny"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: tiny"));
+}
+
+fn write_lio_zip(path: &std::path::Path) {
+    let file = fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default();
+    for (name, body) in [
+        ("tiny.i00", "1\r\n"),
+        ("tiny.i01", "2\r\n"),
+        ("tiny.o00", "1\r\n"),
+        ("tiny.o01", "2\r\n"),
+    ] {
+        zip.start_file(name, opts).unwrap();
+        zip.write_all(body.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+fn write_source_zip(src: &std::path::Path, path: &std::path::Path) {
+    let file = fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default();
+    for rel in [
+        "task.yaml",
+        "testi/tests.zip",
+        "teksts/tiny.typ",
+        "risin/ok.cpp",
+    ] {
+        zip.start_file(format!("tiny/{rel}"), opts).unwrap();
+        zip.write_all(&fs::read(src.join(rel)).unwrap()).unwrap();
+    }
+    zip.finish().unwrap();
 }
 
 fn copy_dir(src: &str, dst: &std::path::Path) {

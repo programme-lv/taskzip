@@ -1,6 +1,7 @@
 pub mod check;
 pub mod exec;
 pub mod generate;
+pub mod import;
 pub mod meta;
 pub mod package;
 pub mod run;

@@ -1,6 +1,7 @@
 use taskzip::check;
 use taskzip::exec;
 use taskzip::generate;
+use taskzip::import;
 use taskzip::package;
 
 use anyhow::Result;
@@ -38,7 +39,7 @@ enum Command {
         #[command(subcommand)]
         cmd: TestsCommand,
     },
-    #[command(about = "Preview an external-format import request; conversion is not implemented")]
+    #[command(about = "Convert an external task package into TaskZip")]
     Import {
         #[arg(value_enum)]
         format: ExternalFormat,
@@ -230,8 +231,9 @@ fn check_expected_score(r: &exec::SolutionRun) -> Result<()> {
 }
 
 fn run_import(format: ExternalFormat, src: PathBuf, dest: PathBuf) -> Result<()> {
-    println!("format: {}", format);
-    println!("src: {}", src.display());
-    println!("dest: {}", dest.display());
+    let dest = match format {
+        ExternalFormat::Lio2024 => import::lio2024(&src, &dest)?,
+    };
+    println!("ok: imported {} to {}", format, dest.display());
     Ok(())
 }

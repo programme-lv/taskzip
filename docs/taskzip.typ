@@ -82,46 +82,39 @@ If the ZIP uses exactly one top-level directory, that directory name MUST
 match the task id.
 The ZIP filename SHOULD match the task id.
 
-A conforming package has the following layout:
+A conforming package has, for example, the following layout:
 
 ```text
 <task-id>/
-  task.toml        required metadata
-  readme.md        optional maintainer notes
-  checker.cpp      iff testing.type = checker
-  interactor.cpp   iff testing.type = interactor
+  task.toml        # required metadata
+  readme.md        # maintainer notes
+  checker.cpp      # iff type = checker
+  interactor.cpp   # iff type = interactor
 
   tests/
-    001i.txt    test input
-    001o.txt    correct answer (or one of)
+    001i.txt    # test input
+    001o.txt    # correct answer (or one of)
     ...
 
   statement/
     lv.md
     en.md
-    zh-hans.md
     diagram.png
     photo.jpg
 
   examples/
     001i.txt
     001o.txt
-    001.md
-
-  attached/
-    grader.h
-    grader.cpp
-    sample_grader.cpp
+    001.md    # example explanation
 
   solutions/
-    <fname>.cpp
-
-  archive/
-    statement-pdf/
-      lv.pdf
-      en.pdf
-    ...
+    cool_sol.cpp # good or bad solution
 ```
+
+Additionally, `attached/` and `archive/` MAY be present.
+- `attached/` contains files accessible by contestants, e.g. grader header files.
+- `archive/` contains task material that is not directly reflected in the TaskZip format, e.g. the original statement PDF.
+
 
 `checker.cpp` and `interactor.cpp` are described in @sec:judging and
 @sec:interactor respectively.
@@ -178,10 +171,6 @@ en = "Square Dust"
 type = "simple"
 cpu_ms = 1000
 mem_mib = 256
-
-[scoring]
-type = "test-sum"
-total = 12
 
 [[solutions]]
 fname = "full.cpp"
@@ -243,56 +232,90 @@ Interactive tasks are described in @sec:interactor.
 
 === Scoring <sec:scoring>
 
-The field `scoring.type` MUST be one of:
+There is no scoring type field.
+The scoring mode is determined by the presence of `[[subtasks]]` entries.
 
-```text
-test-sum
-groups
-```
-
-Extensions MAY define additional scoring modes.
-The LIO `min-groups` mode is defined in @sec:lio.
-The field `scoring.total` MUST be a positive integer.
-For `test-sum`, `scoring.total` MUST equal the number of tests
+If no subtasks are declared, each passing test awards one point.
+The score is the number of passed tests, and the total equals the test count
 (@sec:tests).
 
-For `groups`, `scoring.total` is the sum of all group points and
-test groups are declared in `[[groups]]`:
+If at least one subtask is declared, scoring is by subtasks.
+Points are awarded all-or-nothing: a scoring unit awards its points only if
+every test in it passes.
+The task total is the sum of all subtask points.
+
+Each `[[subtasks]]` entry MUST contain exactly one of:
+- `tests`, an inclusive test range in `AAA-BBB` format, together with a
+  positive integer `points`; or
+- one or more `[[subtasks.groups]]` entries, each with `tests` and a
+  positive integer `points`.
+
+In the second form, the scoring units are the groups, and the subtask's
+point value is the sum of its group points; the subtask itself MUST NOT
+declare `points` or `tests`.
+Groups exist for finer-grained partial scoring within a subtask, as used by
+the Latvian Informatics Olympiad (@sec:lio).
+A minimal example with two subtasks, the second split into groups:
 
 ```toml
-[scoring]
-type = "groups"
-total = 100
+[[subtasks]]
+points = 40
+tests = "001-004"
 
-[[groups]]
-id = 1
-tests = "001-010"
-points = 20
-subtask = 1
-mode = "all"
+[subtasks.description]
+lv = "Mazie ierobežojumi."
 
-[[groups]]
-id = 2
-tests = "011-025"
+[[subtasks]]
+
+[subtasks.description]
+lv = "Lielie ierobežojumi."
+
+[[subtasks.groups]]
 points = 30
-subtask = 2
-mode = "all"
-requires = [1]
+tests = "005-007"
+public = true
+
+[[subtasks.groups]]
+points = 30
+tests = "008-010"
 ```
 
-Each `[[groups]]` entry MUST have `id` (positive integer, consecutive
-starting at 1), `tests` (inclusive range in `AAA-BBB` format referring to
-existing test indices), `points` (positive integer), and `mode`.
-The `mode` MUST be `all` (all tests in the group must pass to award points)
-or `each` (each passing test awards proportional points).
-The optional `subtask` field links a group to a declared `[[subtasks]]`
-entry by 1-based index.
-The optional `requires` field lists group ids that must be fully passed
-before this group is scored; if any required group is not fully passed, this
-group awards 0 points regardless of test results.
-Group test ranges MUST NOT overlap, and MUST collectively cover every
-official test exactly once.
-Group points MUST sum to `scoring.total`.
+Declared test ranges, reading subtasks and their groups in order, MUST
+partition the official tests: ascending, non-overlapping, and covering every
+test exactly once.
+Test indices inside one subtask or group are therefore always consecutive;
+tasks MUST be numbered so that this holds.
+
+The optional group field `public` (default false) marks a group whose
+verdict is shown to the contestant during the contest.
+Subtasks have no public flag.
+
+The optional subtask field `vis_input` (default false) marks a subtask whose
+official input is shown to contestants in the task statement.
+Such subtasks are used when a small number of points is awarded for solving
+the visible case---for example by hand on paper and submitting a program that
+prints the correct answers for that input.
+
+The optional `[subtasks.description]` sub-table holds a short per-language
+description; keys MUST be lowercased BCP 47 language tags.
+Normalized `statement/*.md` files MUST NOT contain manually written
+per-subtask descriptions that duplicate `[[subtasks]].description`.
+Contestant-facing renderers SHOULD generate the visible scoring section
+from structured metadata in `task.toml` and inject it into the final
+HTML or PDF output; such generated content is not part of
+`statement/*.md`.
+If an imported original statement contains subtask prose, import tooling
+SHOULD extract it into `[[subtasks]].description`, or preserve the
+unmodified original under `archive/` while keeping `statement/*.md`
+normalized.
+Partial scoring overview prose MAY appear under a `Vērtēšana` or
+`Scoring` heading in the statement when it does not duplicate
+structured per-subtask descriptions.
+
+Each `[[solutions]]` entry with a non-empty `subtasks` list
+MUST refer only to existing 1-based subtask indices.
+If no subtasks are declared, `subtasks` on solutions MUST be empty or
+omitted.
 
 == Official tests <sec:tests>
 
@@ -620,7 +643,7 @@ archive/import-metadata.json
 
 = Extensions <sec:extensions>
 
-Extensions define optional metadata, directories, or scoring modes on top of
+Extensions define optional metadata or directories on top of
 the core format.
 Generic import tooling MAY ignore extension data it does not use, but MUST
 still reject malformed extension data for extensions defined by this
@@ -635,14 +658,14 @@ This isolates extension data from core tables and prevents name collisions.
 
 ```toml
 [ext.lio]
-testgroups = "archive/testgroups.txt"
+round = "valsts"
 
 [ext.codeforces]
 problem_id = 1234
 ```
 
 Rules:
-- Unknown fields in core tables (`[testing]`, `[scoring]`, `[name]`,
+- Unknown fields in core tables (`[testing]`, `[name]`,
   `[origin]`, `[metadata]`) MUST be rejected.
 - Unknown fields inside `[ext.<name>]` for a registered extension (one
   defined in this document) MUST be rejected.
@@ -777,51 +800,6 @@ Assign by minimum technique needed, using the level names in
   named advanced technique $arrow.r$ 4;
   editorial-level for most olympiad students $arrow.r$ 5.
 
-== Subtasks and descriptions <sec:subtasks>
-
-The `[[subtasks]]` array records named scoring regions used by statements,
-analysis, and extensions such as LIO `min-groups`.
-
-```toml
-[[subtasks]]
-points = 50
-vis_input = true
-
-[subtasks.description]
-lv = "Mazie ierobežojumi."
-en = "Small constraints."
-```
-
-When `[[subtasks]]` entries are present, each `points` value
-MUST be a positive integer.
-The optional field `vis_input` marks a subtask whose official input
-is shown to contestants during the contest.
-Such subtasks are used when a small number of points is awarded for solving
-the visible case---for example by hand on paper and submitting a program that
-prints the correct answers for that input.
-
-Subtask descriptions belong in `[subtasks.description]` in `task.toml`.
-Normalized `statement/*.md` files MUST NOT contain manually written
-per-subtask descriptions that duplicate `[[subtasks]].description`.
-Contestant-facing renderers SHOULD generate the visible scoring section
-from structured metadata in `task.toml` and inject it into the final
-HTML or PDF output; such generated content is not part of
-`statement/*.md`.
-If an imported original statement contains subtask prose, import tooling
-SHOULD extract it into `[[subtasks]].description`, or preserve the
-unmodified original under `archive/` while keeping `statement/*.md`
-normalized.
-Partial scoring overview prose MAY appear under a `Vērtēšana` or
-`Scoring` heading in the statement when it does not duplicate
-structured per-subtask descriptions.
-
-For `min-groups` scoring (@sec:lio), at least one subtask
-MUST be declared.
-Each `[[solutions]]` entry with a non-empty `subtasks` list
-MUST refer only to existing 1-based subtask indices.
-If no subtasks are declared, `subtasks` on solutions MUST be empty or
-omitted.
-
 == Solution expected scores <sec:solution-scores>
 
 Solution entries MAY record the score a known solution is expected to receive.
@@ -829,10 +807,11 @@ This is useful for partial solutions, intentionally slow solutions, and
 regression checks during import.
 
 If present, `score` in a `[[solutions]]` entry MUST be an integer from
-0 to `scoring.total`.
-For a full accepted solution, `score` SHOULD equal `scoring.total`.
+0 to the task total: the test count without subtasks, or the sum of subtask
+points otherwise (@sec:scoring).
+For a full accepted solution, `score` SHOULD equal the task total.
 For a partial solution, `score` SHOULD match the points expected from the
-declared scoring mode.
+declared subtasks and groups.
 
 ```toml
 [[solutions]]
@@ -1007,10 +986,9 @@ unrecognized or dangling files, contain malformed metadata or an unsupported
 incomplete or mismatched example files for the declared `testing.type`,
 have non-consecutive indices, contain forbidden or empty input content in
 official test files, have unsanitized SVG in `statement/`, have unknown
-fields in core tables, or have inconsistent `test-sum` or `groups` scoring.
+fields in core tables, or have inconsistent subtask scoring (@sec:scoring).
 The `testspec-files` limit is formula-based: at most `tests-count + 200`
 files under `testspec/`.
-LIO `min-groups` consistency is checked as in @sec:lio.
 Interactive-task consistency is checked as in @sec:interactor.
 
 == Suggested executable <sec:tooling-cli>
@@ -1025,6 +1003,7 @@ taskzip check <package>
 taskzip tests generate <package>
 taskzip tests answers <package>
 taskzip tests validate <package>
+taskzip import lio2024 <src> <dest>
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
@@ -1055,6 +1034,12 @@ For interactive tasks, this command SHOULD be rejected.
 
 `taskzip tests validate` SHOULD compile and run `testspec/validator.cpp`, if
 present, against official or generated test inputs.
+
+`taskzip import lio2024` SHOULD convert an LIO 2024 source task directory or
+ZIP with `task.yaml` and the referenced `tests_archive` into a TaskZip
+package.
+If the destination path is not named like the imported task id, implementations
+MAY write the package under `<dest>/<id>`.
 
 `taskzip run-solutions` SHOULD compile registered files under `solutions/`,
 run them against the official tests, apply `checker.cpp` when required by
@@ -1219,68 +1204,27 @@ Other sections cite limits by that identifier and refer to @tbl:limits.
     [#text(size: 8.5pt, font: "DejaVu Sans Mono")[solutions-size]],
       [`solutions/` total uncompressed size],
       [$<=$ 256 MiB],
-    table.hline(stroke: 0.5pt),
-    [#text(size: 8.5pt, font: "DejaVu Sans Mono")[lio-testgroups-size]],
-      [`archive/testgroups.txt`],
-      [$<=$ 1 MiB],
     table.hline(),
   ),
 ) <tbl:limits>
 
 = Latvian Informatics Olympiad <sec:lio>
 
-This section defines extensions used by the Latvian Informatics Olympiad
-(LIO).
-They are not part of the core TaskZip layout; generic import tooling MAY
-ignore them.
+This section describes how Latvian Informatics Olympiad (LIO) tasks map
+onto the core format; it defines no additional on-disk files.
 
 LIO packages SHOULD set `origin.olymp` to `LIO`.
-LIO uses `scoring.type = "min-groups"`, which is a LIO-specific scoring
-mode distinct from the generic `groups` mode (@sec:scoring).
-A package with `scoring.type = "min-groups"` MUST have
-`origin.olymp = "LIO"`.
-In `min-groups` mode, points are assigned to fine-grained test groups
-defined in `archive/testgroups.txt`; broader subtasks remain in `task.toml`
-and are linked from that file.
+LIO scores fine-grained test groups within broader subtasks.
+This maps directly onto subtask scoring (@sec:scoring): each LIO subtask
+becomes a `[[subtasks]]` entry, and its test groups become
+`[[subtasks.groups]]` entries with their own points.
+An LIO group whose verdict is visible to contestants during the contest
+sets `public = true`.
+Subtasks whose input data is published in the statement set
+`vis_input = true`.
 
-The grouping file MUST be `archive/testgroups.txt`.
-It MUST NOT appear at the task root; import tooling MUST reject
-`testgroups.txt` outside `archive/`.
-For LIO packages with `scoring.type = "min-groups"`,
-`archive/testgroups.txt` MUST exist.
-
-The file contains one group per line:
-
-```text
-01: 001-002 3p (1)
-02: 003-003 3p (1) *
-03: 004-004 94p (2)
-```
-
-Each line MUST match:
-
-```text
-NN: AAA-BBB Pp (S)
-NN: AAA-BBB Pp (S) *
-```
-
-where `NN` is the group number, `AAA-BBB` is the inclusive
-test range, `P` is the number of points, `S` is the 1-based
-subtask index, and a trailing `*` marks a public group.
-
-Group numbers MUST be consecutive, test ranges MUST refer to existing tests,
-MUST NOT overlap, and MUST partition the official tests so each test index
-belongs to exactly one group.
-Group points MUST be positive.
-Group points MUST sum to `scoring.total`, and subtask points MUST
-match the sum of their linked groups.
-Every declared subtask MUST be linked from at least one group, and every
-subtask index in the file MUST refer to an existing `[[subtasks]]` row.
-The file size MUST be at most 1 MiB (limit `lio-testgroups-size` in
-@tbl:limits).
-
-LIO-aware import tooling MUST reject LIO `min-groups` packages that
-violate these rules.
+Import tooling for LIO source formats SHOULD renumber tests so that every
+group covers a consecutive test range, as required by @sec:scoring.
 
 = Testlib overview <app:testlib>
 
