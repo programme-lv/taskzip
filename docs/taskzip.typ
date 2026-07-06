@@ -1022,8 +1022,8 @@ their exact flags, build system, sandboxing model, or output filenames:
 
 ```text
 taskzip check <package>
-taskzip generate <package>
-taskzip validate-tests <package>
+taskzip tests generate <package>
+taskzip tests validate <package>
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
@@ -1031,12 +1031,12 @@ taskzip verify <package>
 `taskzip check` SHOULD perform package conformance checking without compiling
 or running task-specific programs.
 
-`taskzip generate` SHOULD use `testspec/tests.txt` to assemble candidate
+`taskzip tests generate` SHOULD use `testspec/tests.txt` to assemble candidate
 official test inputs from generated and manual cases.
 Manifest line *N* SHOULD produce test `NNNi.txt`.
 It SHOULD NOT overwrite `tests/` unless the user explicitly requests that.
 
-`taskzip generate` MAY cache assembled inputs under `.taskzip/` in the
+`taskzip tests generate` MAY cache assembled inputs under `.taskzip/` in the
 package.
 For each manifest line, the cache key SHOULD incorporate the relevant source
 material (`testspec/generator.cpp` for `g` lines, the manual file for `m`
@@ -1046,7 +1046,7 @@ A line SHOULD be regenerated only when its cache entry is missing or the key
 or checksum no longer matches.
 Implementations MAY expose a flag to bypass the cache.
 
-`taskzip validate-tests` SHOULD compile and run `testspec/validator.cpp`, if
+`taskzip tests validate` SHOULD compile and run `testspec/validator.cpp`, if
 present, against official or generated test inputs.
 
 `taskzip run-solutions` SHOULD compile registered files under `solutions/`,

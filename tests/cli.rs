@@ -48,6 +48,7 @@ fn parse_range_helper() {
 fn generate_fixture() {
     let dir = tempdir().unwrap();
     bin()
+        .arg("tests")
         .arg("generate")
         .arg("tests/fixtures/addtwo")
         .arg("--force")
@@ -61,6 +62,7 @@ fn generate_fixture() {
     let first = fs::read_to_string(dir.path().join("001i.txt")).unwrap();
     assert!(first.contains('5'));
     bin()
+        .arg("tests")
         .arg("generate")
         .arg("tests/fixtures/addtwo")
         .arg("--out")
@@ -78,6 +80,7 @@ fn generate_rejects_comment_manifest() {
     copy_dir("tests/fixtures/addtwo", &root);
     fs::write(root.join("testspec/tests.txt"), "# skip\ng 5\n").unwrap();
     bin()
+        .arg("tests")
         .arg("generate")
         .arg(&root)
         .assert()

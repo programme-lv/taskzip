@@ -21,15 +21,15 @@ taskzip check path/to/task
 
 ```text
 taskzip check <package>
-taskzip generate <package> [--out DIR] [--write] [--force]
-taskzip validate-tests <package>
+taskzip tests generate <package> [--out DIR] [--write] [--force]
+taskzip tests validate <package>
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
 
 `<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
 
-`generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead. Manifest line *N* becomes test `NNN`; blank lines and `#` comments are rejected. Cached inputs live under `$XDG_CACHE_HOME/taskzip/generate/` (or `~/.cache/taskzip/generate/`); a line is regenerated only when its cache key (generator or manual source plus manifest line) or stored checksum changes. Use `--force` to bypass the cache.
+`tests generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead. Manifest line *N* becomes test `NNN`; blank lines and `#` comments are rejected. Cached inputs live under `$XDG_CACHE_HOME/taskzip/generate/` (or `~/.cache/taskzip/generate/`); a line is regenerated only when its cache key (generator or manual source plus manifest line) or stored checksum changes. Use `--force` to bypass the cache.
 
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 
@@ -52,7 +52,7 @@ See the TaskZip specification for the full format.
 
 ## Security
 
-`generate`, `validate-tests`, `run-solutions`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
+`tests generate`, `tests validate`, `run-solutions`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
 
 **TODO:** sandbox or isolate untrusted package code before running it.
 
@@ -83,7 +83,7 @@ cargo test check_fixture
 
 ```bash
 taskzip check tests/fixtures/addtwo
-taskzip generate tests/fixtures/addtwo --out /tmp/gen
+taskzip tests generate tests/fixtures/addtwo --out /tmp/gen
 taskzip run-solutions tests/fixtures/addtwo
 taskzip verify tests/fixtures/addtwo
 ```

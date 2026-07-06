@@ -33,18 +33,10 @@ enum Command {
         #[arg(default_value = ".")]
         package: PathBuf,
     },
-    #[command(about = "Build test inputs from testspec/tests.txt using generator or manual cases")]
-    Generate {
-        #[arg(default_value = ".")]
-        package: PathBuf,
-        #[arg(long)]
-        write: bool,
-        #[arg(long)]
-        force: bool,
-        #[arg(long, default_value = ".taskzip/generated")]
-        out: PathBuf,
-        #[arg(long, default_value_t = 60)]
-        timeout: u64,
+    #[command(about = "Generate or validate official test inputs")]
+    Tests {
+        #[command(subcommand)]
+        cmd: TestsCommand,
     },
     #[command(about = "Preview an external-format import request; conversion is not implemented")]
     Import {
@@ -52,11 +44,6 @@ enum Command {
         format: ExternalFormat,
         src: PathBuf,
         dest: PathBuf,
-    },
-    #[command(about = "Run testspec/validator.cpp, when present, on every official input")]
-    ValidateTests {
-        #[arg(default_value = ".")]
-        package: PathBuf,
     },
     #[command(about = "Compile registered C++ solutions, run official tests, and print scores")]
     RunSolutions {
@@ -70,78 +57,133 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum TestsCommand {
+    #[command(about = "Build inputs from testspec/tests.txt using generator or manual cases")]
+    Generate {
+        #[arg(default_value = ".")]
+        package: PathBuf,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value = ".taskzip/generated")]
+        out: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        timeout: u64,
+    },
+    #[command(about = "Run testspec/validator.cpp, when present, on every official input")]
+    Validate {
+        #[arg(default_value = ".")]
+        package: PathBuf,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Command::Check { package } => {
-            let pkg = package::open(&package)?;
-            let warns = check::check(&pkg)?;
-            for w in warns {
-                eprintln!("warn: {w}");
-            }
-            println!("ok: {}", pkg.id);
-        }
-        Command::Generate {
+        Command::Check { package } => run_check(package),
+        Command::Tests { cmd } => run_tests(cmd),
+        Command::RunSolutions { package } => run_solutions(package),
+        Command::Verify { package } => run_verify(package),
+        Command::Import { format, src, dest } => run_import(format, src, dest),
+    }
+}
+
+fn run_check(package: PathBuf) -> Result<()> {
+    let pkg = package::open(&package)?;
+    let warns = check::check(&pkg)?;
+    for w in warns {
+        eprintln!("warn: {w}");
+    }
+    println!("ok: {}", pkg.id);
+    Ok(())
+}
+
+fn run_tests(cmd: TestsCommand) -> Result<()> {
+    match cmd {
+        TestsCommand::Generate {
             package,
             write,
             force,
             out,
             timeout,
-        } => {
-            let pkg = package::open(&package)?;
-            check::preflight_generate(&pkg)?;
-            let dst = if write { pkg.root.join("tests") } else { out };
-            let report =
-                generate::generate(&pkg, &dst, force, Duration::from_secs(timeout))?;
-            println!(
-                "ok: wrote inputs to {} (cached {}, regenerated {})",
-                dst.display(),
-                report.cached,
-                report.regenerated
+        } => run_generate(package, write, force, out, timeout),
+        TestsCommand::Validate { package } => run_validate(package),
+    }
+}
+
+fn run_generate(
+    package: PathBuf,
+    write: bool,
+    force: bool,
+    out: PathBuf,
+    timeout: u64,
+) -> Result<()> {
+    let pkg = package::open(&package)?;
+    check::preflight_generate(&pkg)?;
+    let dst = if write { pkg.root.join("tests") } else { out };
+    let report = generate::generate(&pkg, &dst, force, Duration::from_secs(timeout))?;
+    println!(
+        "ok: wrote inputs to {} (cached {}, regenerated {})",
+        dst.display(),
+        report.cached,
+        report.regenerated
+    );
+    Ok(())
+}
+
+fn run_validate(package: PathBuf) -> Result<()> {
+    let pkg = package::open(&package)?;
+    check::check(&pkg)?;
+    exec::validate_tests(&pkg)?;
+    println!("ok: validator passed");
+    Ok(())
+}
+
+fn run_solutions(package: PathBuf) -> Result<()> {
+    let pkg = package::open(&package)?;
+    check::check(&pkg)?;
+    let rows = exec::run_solutions(&pkg)?;
+    for r in rows {
+        println!("{}: {}/{}", r.fname, r.score, r.total);
+    }
+    Ok(())
+}
+
+fn run_verify(package: PathBuf) -> Result<()> {
+    let pkg = package::open(&package)?;
+    let warns = check::check(&pkg)?;
+    for w in warns {
+        eprintln!("warn: {w}");
+    }
+    exec::validate_tests(&pkg)?;
+    let rows = exec::run_solutions(&pkg)?;
+    for r in &rows {
+        check_expected_score(r)?;
+        println!("{}: {}/{}", r.fname, r.score, r.total);
+    }
+    Ok(())
+}
+
+fn check_expected_score(r: &exec::SolutionRun) -> Result<()> {
+    if let Some(exp) = r.expected {
+        if exp != r.score {
+            anyhow::bail!(
+                "{}: score {}/{} != expected {}",
+                r.fname,
+                r.score,
+                r.total,
+                exp
             );
         }
-        Command::ValidateTests { package } => {
-            let pkg = package::open(&package)?;
-            check::check(&pkg)?;
-            exec::validate_tests(&pkg)?;
-            println!("ok: validator passed");
-        }
-        Command::RunSolutions { package } => {
-            let pkg = package::open(&package)?;
-            check::check(&pkg)?;
-            let rows = exec::run_solutions(&pkg)?;
-            for r in rows {
-                println!("{}: {}/{}", r.fname, r.score, r.total);
-            }
-        }
-        Command::Verify { package } => {
-            let pkg = package::open(&package)?;
-            let warns = check::check(&pkg)?;
-            for w in warns {
-                eprintln!("warn: {w}");
-            }
-            exec::validate_tests(&pkg)?;
-            let rows = exec::run_solutions(&pkg)?;
-            for r in &rows {
-                if let Some(exp) = r.expected {
-                    if exp != r.score {
-                        anyhow::bail!(
-                            "{}: score {}/{} != expected {}",
-                            r.fname,
-                            r.score,
-                            r.total,
-                            exp
-                        );
-                    }
-                }
-                println!("{}: {}/{}", r.fname, r.score, r.total);
-            }
-        }
-        Command::Import { format, src, dest } => {
-            println!("format: {}", format);
-            println!("src: {}", src.display());
-            println!("dest: {}", dest.display());
-        }
     }
+    Ok(())
+}
+
+fn run_import(format: ExternalFormat, src: PathBuf, dest: PathBuf) -> Result<()> {
+    println!("format: {}", format);
+    println!("src: {}", src.display());
+    println!("dest: {}", dest.display());
     Ok(())
 }
