@@ -33,7 +33,7 @@ enum Command {
         #[arg(default_value = ".")]
         package: PathBuf,
     },
-    #[command(about = "Generate or validate official test inputs")]
+    #[command(about = "Generate inputs, generate answers, or validate tests")]
     Tests {
         #[command(subcommand)]
         cmd: TestsCommand,
@@ -76,13 +76,17 @@ enum TestsCommand {
     Answers {
         #[arg(default_value = ".")]
         package: PathBuf,
-        #[arg(long = "in", default_value = ".taskzip/generated")]
+        #[arg(
+            long = "in",
+            default_value = ".taskzip/generated",
+            help = "Directory with NNNi.txt inputs"
+        )]
         input: PathBuf,
-        #[arg(long)]
+        #[arg(long, help = "Directory for NNNo.txt answers; defaults to --in")]
         out: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, help = "Read inputs from and write answers to package tests/")]
         write: bool,
-        #[arg(long)]
+        #[arg(long, help = "Registered solution filename under solutions/")]
         solution: Option<String>,
     },
     #[command(about = "Run testspec/validator.cpp, when present, on every official input")]

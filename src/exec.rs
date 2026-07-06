@@ -81,10 +81,11 @@ pub fn generate_answers(
     let src = pkg.root.join("solutions").join(&fname);
     let bin = compile_cpp(&src, &work.path().join(&fname), &attached_sources(pkg)?)?;
     fs::create_dir_all(out_dir)?;
+    let limits = solution_limits(pkg);
     let mut written = 0;
     for (id, input) in input_files(input_dir)? {
-        let out = run::run(&bin, &[], Some(input), solution_limits(pkg))?;
-        if run_failed(&out, solution_limits(pkg)) {
+        let out = run::run(&bin, &[], Some(input), limits)?;
+        if run_failed(&out, limits) {
             bail!("solution failed on {id:03}");
         }
         fs::write(out_dir.join(format!("{id:03}o.txt")), out.stdout)?;
@@ -114,7 +115,8 @@ fn model_solution(pkg: &Package, solution: Option<&str>) -> Result<String> {
 
 fn input_files(input_dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
     let mut files = Vec::new();
-    for entry in fs::read_dir(input_dir).with_context(|| format!("read {}", input_dir.display()))? {
+    let entries = fs::read_dir(input_dir).with_context(|| format!("read {}", input_dir.display()))?;
+    for entry in entries {
         let path = entry?.path();
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
             continue;
