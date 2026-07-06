@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tempfile::TempDir;
 use walkdir::WalkDir;
 use zip::ZipArchive;
@@ -351,9 +351,12 @@ impl LioTask {
 
     fn write_archive(&self, src: &Path, dest: &Path) -> Result<()> {
         let archive = dest.join("archive/original");
+        let test_archive = normalize_rel(Path::new(&self.tests_archive));
+        let test_dir = test_archive.parent();
         for path in files_under(src)? {
             let rel = path.strip_prefix(src)?;
-            if rel == Path::new(&self.tests_archive) {
+            if rel == test_archive || test_dir.is_some_and(|dir| rel.starts_with(dir))
+            {
                 continue;
             }
             let out = archive.join(rel);
@@ -592,6 +595,15 @@ fn copy_optional(src: &Path, dest: &Path, rel: Option<&str>, name: &str) -> Resu
         fs::copy(src.join(rel), dest.join(name))?;
     }
     Ok(())
+}
+
+fn normalize_rel(path: &Path) -> PathBuf {
+    path.components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(PathBuf::from(s)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn cpp_solutions(src: &Path) -> Result<Vec<String>> {

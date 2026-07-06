@@ -149,6 +149,7 @@ fn import_lio2024_fixture() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ok: tiny"));
+    assert!(!dest.join("archive/original/testi/tests.zip").exists());
     let src_zip = dir.path().join("tiny.zip");
     let zip_dest = dir.path().join("zip-out");
     write_source_zip(&src, &src_zip);
