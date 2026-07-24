@@ -9,9 +9,12 @@ use walkdir::WalkDir;
 use zip::ZipArchive;
 
 pub fn lio2024(src: &Path, dest: &Path) -> Result<PathBuf> {
+    if !dest.is_dir() {
+        bail!("dest is not a directory: {}", dest.display());
+    }
     let source = LioSource::open(src)?;
     let task = LioTask::read(&source.root)?;
-    let dest = import_dest(dest, &task.id);
+    let dest = dest.join(&task.id);
     if dest.exists() {
         bail!("dest already exists: {}", dest.display());
     }
@@ -43,14 +46,6 @@ impl LioSource {
             root,
             _temp: Some(temp),
         })
-    }
-}
-
-fn import_dest(dest: &Path, id: &str) -> PathBuf {
-    if dest.file_name().and_then(|s| s.to_str()) == Some(id) {
-        dest.to_path_buf()
-    } else {
-        dest.join(id)
     }
 }
 

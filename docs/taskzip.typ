@@ -905,8 +905,8 @@ present, against official or generated test inputs.
 `taskzip import lio2024` SHOULD convert an LIO 2024 source task directory or
 ZIP with `task.yaml` and the referenced `tests_archive` into a TaskZip
 package.
-If the destination path is not named like the imported task id, implementations
-MAY write the package under `<dest>/<id>`.
+The destination path MUST be an existing parent directory, and implementations
+SHOULD write the package under `<dest>/<id>`.
 
 `taskzip run-solutions` SHOULD compile registered files under `solutions/`,
 run them against the official tests, apply `checker.cpp` when required by

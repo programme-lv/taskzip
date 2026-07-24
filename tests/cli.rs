@@ -124,6 +124,7 @@ fn import_lio2024_fixture() {
     let src = dir.path().join("tiny");
     let dest_parent = dir.path().join("tiny-out");
     let dest = dest_parent.join("tiny");
+    fs::create_dir(&dest_parent).unwrap();
     fs::create_dir_all(src.join("testi")).unwrap();
     fs::create_dir_all(src.join("teksts")).unwrap();
     fs::create_dir_all(src.join("risin")).unwrap();
@@ -151,7 +152,8 @@ fn import_lio2024_fixture() {
         .stdout(predicate::str::contains("ok: tiny"));
     assert!(!dest.join("archive/original/testi/tests.zip").exists());
     let src_zip = dir.path().join("tiny.zip");
-    let zip_dest = dir.path().join("zip-out");
+    let zip_dest = dir.path().join("output/tiny");
+    fs::create_dir_all(&zip_dest).unwrap();
     write_source_zip(&src, &src_zip);
     bin()
         .arg("import")
