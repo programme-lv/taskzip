@@ -2,10 +2,17 @@
 
 CLI for [TaskZip](https://github.com/programme-lv/taskzip) packages: check layout, generate tests from `testspec/`, validate inputs, and run registered solutions.
 
-## Install (Arch Linux)
+## Install
+
+Install [Rust](https://www.rust-lang.org/tools/install). On Arch Linux:
 
 ```bash
-sudo pacman -S rust gcc
+sudo pacman -S rust
+```
+
+Then:
+
+```bash
 git clone https://github.com/programme-lv/taskzip.git
 cd taskzip
 cargo install --path .
