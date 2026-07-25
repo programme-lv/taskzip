@@ -141,6 +141,17 @@ fn import_lio2024_fixture() {
         .arg("lio2024")
         .arg(&src)
         .arg(&dest_parent)
+        .env("OPENAI_API_KEY", "")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("OPENAI_API_KEY empty"));
+    assert!(!dest.exists());
+    bin()
+        .arg("import")
+        .arg("lio2024")
+        .arg(&src)
+        .arg(&dest_parent)
+        .arg("--skip-statement-import")
         .assert()
         .success()
         .stdout(predicate::str::contains("ok: imported lio2024"));
@@ -151,6 +162,12 @@ fn import_lio2024_fixture() {
         .success()
         .stdout(predicate::str::contains("ok: tiny"));
     assert!(!dest.join("archive/original/testi/tests.zip").exists());
+    assert!(fs::read_to_string(dest.join("statement/lv.md"))
+        .unwrap()
+        .contains("# TODO"));
+    assert!(fs::read_to_string(dest.join("readme.md"))
+        .unwrap()
+        .contains("port statement"));
     let src_zip = dir.path().join("tiny.zip");
     let zip_dest = dir.path().join("output/tiny");
     fs::create_dir_all(&zip_dest).unwrap();
@@ -160,6 +177,7 @@ fn import_lio2024_fixture() {
         .arg("lio2024")
         .arg(&src_zip)
         .arg(&zip_dest)
+        .arg("--skip-statement-import")
         .assert()
         .success()
         .stdout(predicate::str::contains("ok: imported lio2024"));

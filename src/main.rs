@@ -45,6 +45,8 @@ enum Command {
         format: ExternalFormat,
         src: PathBuf,
         dest: PathBuf,
+        #[arg(long)]
+        skip_statement_import: bool,
     },
     #[command(about = "Compile registered C++ solutions, run official tests, and print scores")]
     RunSolutions {
@@ -104,7 +106,12 @@ fn main() -> Result<()> {
         Command::Tests { cmd } => run_tests(cmd),
         Command::RunSolutions { package } => run_solutions(package),
         Command::Verify { package } => run_verify(package),
-        Command::Import { format, src, dest } => run_import(format, src, dest),
+        Command::Import {
+            format,
+            src,
+            dest,
+            skip_statement_import,
+        } => run_import(format, src, dest, skip_statement_import),
     }
 }
 
@@ -230,9 +237,14 @@ fn check_expected_score(r: &exec::SolutionRun) -> Result<()> {
     Ok(())
 }
 
-fn run_import(format: ExternalFormat, src: PathBuf, dest: PathBuf) -> Result<()> {
+fn run_import(
+    format: ExternalFormat,
+    src: PathBuf,
+    dest: PathBuf,
+    skip_statement_import: bool,
+) -> Result<()> {
     let dest = match format {
-        ExternalFormat::Lio2024 => import::lio2024(&src, &dest)?,
+        ExternalFormat::Lio2024 => import::lio2024(&src, &dest, skip_statement_import)?,
     };
     println!("ok: imported {} to {}", format, dest.display());
     Ok(())

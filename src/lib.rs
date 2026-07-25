@@ -1,3 +1,4 @@
+pub mod assist;
 pub mod check;
 pub mod exec;
 pub mod generate;

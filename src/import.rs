@@ -1,3 +1,4 @@
+use crate::assist;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -8,7 +9,7 @@ use tempfile::TempDir;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
-pub fn lio2024(src: &Path, dest: &Path) -> Result<PathBuf> {
+pub fn lio2024(src: &Path, dest: &Path, skip_statement_import: bool) -> Result<PathBuf> {
     if !dest.is_dir() {
         bail!("dest is not a directory: {}", dest.display());
     }
@@ -19,7 +20,12 @@ pub fn lio2024(src: &Path, dest: &Path) -> Result<PathBuf> {
         bail!("dest already exists: {}", dest.display());
     }
     fs::create_dir_all(&dest)?;
-    task.write(&source.root, &dest)?;
+    if let Err(err) = task.write(&source.root, &dest, skip_statement_import) {
+        if let Err(cleanup) = fs::remove_dir_all(&dest) {
+            return Err(err.context(format!("cleanup {}: {cleanup}", dest.display())));
+        }
+        return Err(err);
+    }
     Ok(dest)
 }
 
@@ -148,11 +154,11 @@ impl LioTask {
         })
     }
 
-    fn write(&self, src: &Path, dest: &Path) -> Result<()> {
+    fn write(&self, src: &Path, dest: &Path, skip_statement_import: bool) -> Result<()> {
         self.write_meta(dest)?;
-        self.write_readme(dest)?;
         self.write_tests(dest)?;
-        self.write_statement(src, dest)?;
+        self.write_statement(src, dest, skip_statement_import)?;
+        self.write_readme(dest, !skip_statement_import)?;
         self.write_judging(src, dest)?;
         self.write_solutions(src, dest)?;
         self.write_archive(src, dest)
@@ -220,11 +226,17 @@ impl LioTask {
         Ok(out)
     }
 
-    fn write_readme(&self, dest: &Path) -> Result<()> {
-        fs::write(
-            dest.join("readme.md"),
-            "## TODO\n\n- [ ] port statement from `archive/original/teksts/` to `statement/lv.md`\n- [ ] fill `origin.year`, `origin.stage`, and authors\n- [ ] replace placeholder subtask descriptions\n- [ ] review imported solution scores\n",
-        )?;
+    fn write_readme(&self, dest: &Path, statement_imported: bool) -> Result<()> {
+        let mut text = String::from("## TODO\n\n");
+        if !statement_imported {
+            text.push_str(
+                "- [ ] port statement from `archive/original/teksts/` to `statement/lv.md`\n",
+            );
+        }
+        text.push_str("- [ ] fill `origin.year`, `origin.stage`, and authors\n");
+        text.push_str("- [ ] replace placeholder subtask descriptions\n");
+        text.push_str("- [ ] review imported solution scores\n");
+        fs::write(dest.join("readme.md"), text)?;
         Ok(())
     }
 
@@ -283,13 +295,34 @@ impl LioTask {
         Ok(format!("{:02}-{:02}", ids[0], ids[ids.len() - 1]))
     }
 
-    fn write_statement(&self, src: &Path, dest: &Path) -> Result<()> {
+    fn write_statement(&self, src: &Path, dest: &Path, skip: bool) -> Result<()> {
+        if !skip && self.testing_kind == "interactor" {
+            bail!("interactive statement import unsupported");
+        }
         let statement = dest.join("statement");
         fs::create_dir_all(&statement)?;
-        fs::write(
-            statement.join("lv.md"),
-            "# TODO\n\nOriginal statement sources are in `archive/original/teksts/`.\n",
-        )?;
+        let images = self.copy_statement_assets(src, dest, &statement)?;
+        let path = statement.join("lv.md");
+        if skip {
+            fs::write(
+                path,
+                "# TODO\n\nOriginal statement sources are in `archive/original/teksts/`.\n",
+            )?;
+            return Ok(());
+        }
+        let source = read_typ_source(src)?;
+        let parts = assist::import_statement(&source, &images)?;
+        fs::write(path, statement_markdown(parts))?;
+        Ok(())
+    }
+
+    fn copy_statement_assets(
+        &self,
+        src: &Path,
+        dest: &Path,
+        statement: &Path,
+    ) -> Result<Vec<String>> {
+        let mut images = Vec::new();
         for path in files_under(&src.join("teksts"))? {
             let Some(ext) = path
                 .extension()
@@ -302,6 +335,7 @@ impl LioTask {
             match ext.as_str() {
                 "png" | "jpg" | "jpeg" | "webp" => {
                     fs::copy(&path, statement.join(name))?;
+                    images.push(name.to_string_lossy().into_owned());
                 }
                 "pdf" => {
                     let pdf_dir = dest.join("archive/statement-pdf");
@@ -311,7 +345,8 @@ impl LioTask {
                 _ => {}
             }
         }
-        Ok(())
+        images.sort();
+        Ok(images)
     }
 
     fn write_judging(&self, src: &Path, dest: &Path) -> Result<()> {
@@ -374,6 +409,26 @@ impl LioTask {
     fn has_visible_input(&self) -> bool {
         self.visible_input
     }
+}
+
+fn read_typ_source(src: &Path) -> Result<String> {
+    let files: Vec<_> = files_under(&src.join("teksts"))?
+        .into_iter()
+        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("typ"))
+        .collect();
+    if files.len() != 1 {
+        bail!("expected 1 .typ statement source, got {}", files.len());
+    }
+    fs::read_to_string(&files[0]).with_context(|| format!("read {}", files[0].display()))
+}
+
+fn statement_markdown(parts: assist::StatementParts) -> String {
+    format!(
+        "Stāsts\n------\n\n{}\n\nIevaddati\n---------\n\n{}\n\nIzvaddati\n---------\n\n{}\n",
+        parts.story.trim(),
+        parts.input.trim(),
+        parts.output.trim()
+    )
 }
 
 #[derive(Deserialize)]

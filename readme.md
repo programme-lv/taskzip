@@ -31,7 +31,7 @@ taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
-taskzip import lio2024 <src> <dest>
+taskzip import lio2024 <src> <dest> [--skip-statement-import]
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
@@ -43,6 +43,8 @@ taskzip verify <package>
 `tests answers` runs the model solution on `NNNi.txt` inputs from `--in` (default `.taskzip/generated`) and writes matching `NNNo.txt` files to `--out` (default: same directory). Use `--write` to read from and write to `tests/`. The model solution defaults to the first `[[solutions]]` entry whose `score` equals `scoring.total`; use `--solution` to choose one explicitly.
 
 `import lio2024` converts an LIO 2024 task directory or `.zip` with `task.yaml` and `tests_archive` into a TaskZip package. `<dest>` must be an existing parent directory, and `<dest>/<id>` must not exist. A task with id `foo` is written to `<dest>/foo/task.toml`.
+
+By default, import sends the single `teksts/*.typ` source and available image filenames to OpenAI in three sequential Chat Completions requests, then writes the story, input, and output sections without translating or correcting the source prose. Set `OPENAI_API_KEY` in the environment or a `.env` file. `OPENAI_MODEL` overrides the unverified default `gpt-5.6-luna`; set it if that model is unavailable. Interactive statement import is not supported. Use `--skip-statement-import` for interactive tasks or an offline import that retains the statement TODO.
 
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 
