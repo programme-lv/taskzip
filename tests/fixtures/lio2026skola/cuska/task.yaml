@@ -1,0 +1,80 @@
+name: 'cuska'
+title: 'Purva čūska'
+statements:
+  - ['./teksts/cuska.typ', 'lv']
+
+time_limit: 0.5
+memory_limit: 256
+
+validator: './riki/validator.cpp'
+tests_archive: './testi/tests.zip'
+
+# == Nepieciešams ne komunikāciju uzdevumos, 
+# kur žūrijas atbilde var nesakrist ar dalībnieka atbildi
+checker: './riki/checker.cpp'
+
+# == Nepieciešams komunikāciju uzdevumos
+# task_type: "Communication"
+# interactor: './riki/interactor.cpp'
+
+subtask_points: [0, 14, 18, 20, 22, 26]
+
+tests_groups:
+  - groups: 0
+    points: 0
+    public: true
+    subtask: 0
+    comment: Piemēri
+  
+  - groups: [1, 5]
+    points: 2
+    public: False
+    subtask: 1
+    attachment:
+      input: false
+      output: false
+
+  - groups: [6, 6]
+    points: 4
+    public: True
+    subtask: 1
+
+  - groups: [7, 13]
+    points: 2
+    public: False
+    subtask: 2
+
+  - groups: [14, 14]
+    points: 4
+    public: True
+    subtask: 2
+
+  - groups: [15, 28]
+    points: 1
+    public: False
+    subtask: 3
+
+  - groups: [29, 29]
+    points: 6
+    public: True
+    subtask: 3
+
+  - groups: [30, 39]
+    points: 2
+    public: False
+    subtask: 4
+
+  - groups: [40, 40]
+    points: 2
+    public: True
+    subtask: 4
+
+  - groups: [41, 52]
+    points: 2
+    public: False
+    subtask: 5
+
+  - groups: [53, 53]
+    points: 2
+    public: True
+    subtask: 5
