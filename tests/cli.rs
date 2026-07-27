@@ -123,7 +123,7 @@ fn import_lio2024_fixture() {
     let dir = tempdir().unwrap();
     let src = dir.path().join("tiny");
     let dest_parent = dir.path().join("tiny-out");
-    let dest = dest_parent.join("tiny");
+    let dest = dest_parent.join("lio2026tiny");
     fs::create_dir(&dest_parent).unwrap();
     fs::create_dir_all(src.join("testi")).unwrap();
     fs::create_dir_all(src.join("teksts")).unwrap();
@@ -176,7 +176,7 @@ fn import_lio2024_fixture() {
         .arg(&dest)
         .assert()
         .success()
-        .stdout(predicate::str::contains("ok: tiny"));
+        .stdout(predicate::str::contains("ok: lio2026tiny"));
     assert!(!dest.join("archive/original/testi/tests.zip").exists());
     assert!(fs::read_to_string(dest.join("statement/lv.md"))
         .unwrap()
@@ -199,7 +199,7 @@ fn import_lio2024_fixture() {
         .failure()
         .stderr(predicate::str::contains("unexpected argument"));
     let src_zip = dir.path().join("tiny.zip");
-    let zip_dest = dir.path().join("output/tiny");
+    let zip_dest = dir.path().join("output");
     fs::create_dir_all(&zip_dest).unwrap();
     write_source_zip(&src, &src_zip);
     bin()
@@ -214,10 +214,10 @@ fn import_lio2024_fixture() {
         .stdout(predicate::str::contains("ok: imported lio2024"));
     bin()
         .arg("check")
-        .arg(zip_dest.join("tiny"))
+        .arg(zip_dest.join("lio2026tiny"))
         .assert()
         .success()
-        .stdout(predicate::str::contains("ok: tiny"));
+        .stdout(predicate::str::contains("ok: lio2026tiny"));
 }
 
 fn write_lio_zip(path: &std::path::Path) {

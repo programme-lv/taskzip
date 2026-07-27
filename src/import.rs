@@ -222,7 +222,7 @@ impl LioTask {
             "simple"
         };
         Ok(Self {
-            id: raw.name.to_lowercase(),
+            id: format!("lio{}{}", origin.year, raw.name.to_lowercase()),
             title: raw.title,
             cpu_ms: (raw.time_limit * 1000.0).round() as u32,
             mem_mib: raw.memory_limit,

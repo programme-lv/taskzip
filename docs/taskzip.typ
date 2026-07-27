@@ -1072,6 +1072,7 @@ This section describes how Latvian Informatics Olympiad (LIO) tasks map
 onto the core format; it defines no additional on-disk files.
 
 LIO packages SHOULD set `origin.olymp` to `LIO`.
+Their task id SHOULD be `lio<year><source-name>`, with the source name lowercased; for example, `Cuska` from 2026 becomes `lio2026cuska`.
 LIO scores fine-grained test groups within broader subtasks.
 This maps directly onto subtask scoring (@sec:scoring): each LIO subtask
 becomes a `[[subtasks]]` entry, and its test groups become lines in
