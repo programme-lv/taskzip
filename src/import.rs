@@ -277,9 +277,10 @@ impl LioTask {
             Some(self.import_ai(src, &images, on_progress)?)
         };
         let descriptions = ai.as_ref().map(|parts| parts.subtasks.as_slice());
+        let metadata = ai.as_ref().map(|parts| &parts.metadata);
         let solutions = ai.as_ref().map(|parts| parts.solutions.as_slice());
         stage(on_progress, 0, "write meta");
-        self.write_meta(dest, descriptions, solutions)?;
+        self.write_meta(dest, descriptions, metadata, solutions)?;
         detail(on_progress, 1, "task.toml");
         stage(on_progress, 0, "write tests");
         self.write_tests(dest)?;
@@ -330,11 +331,12 @@ impl LioTask {
         &self,
         dest: &Path,
         descriptions: Option<&[String]>,
+        metadata: Option<&assist::TaskMetadata>,
         solutions: Option<&[assist::SolutionEstimate]>,
     ) -> Result<()> {
         fs::write(
             dest.join("task.toml"),
-            self.task_toml(descriptions, solutions)?,
+            self.task_toml(descriptions, metadata, solutions)?,
         )?;
         Ok(())
     }
@@ -342,6 +344,7 @@ impl LioTask {
     fn task_toml(
         &self,
         descriptions: Option<&[String]>,
+        metadata: Option<&assist::TaskMetadata>,
         solutions: Option<&[assist::SolutionEstimate]>,
     ) -> Result<String> {
         let official_count = self.tests.iter().filter(|t| t.group != 0).count();
@@ -355,8 +358,7 @@ impl LioTask {
         out.push_str(&format!("cpu_ms = {}\n", self.cpu_ms));
         out.push_str(&format!("mem_mib = {}\n\n", self.mem_mib));
         self.write_origin(&mut out);
-        out.push_str("[metadata]\n");
-        out.push_str("difficulty = 1\n\n");
+        write_metadata(&mut out, metadata);
         out.push_str(&self.subtasks_toml(descriptions)?);
         out.push_str(&self.solutions_toml(solutions)?);
         if official_count == 0 {
@@ -761,8 +763,8 @@ fn todo_items(ai_imported: bool) -> Vec<&'static str> {
         items.push("port statement from `archive/original/teksts/` to `statement/lv.md`");
         items.push("replace placeholder subtask descriptions");
         items.push("review imported solution scores");
+        items.push("set task difficulty and classification tags");
     }
-    items.push("set task difficulty and classification tags");
     items
 }
 
@@ -1081,8 +1083,31 @@ fn has_visible_input(src: &Path) -> Result<bool> {
     Ok(false)
 }
 
+fn write_metadata(out: &mut String, metadata: Option<&assist::TaskMetadata>) {
+    out.push_str("[metadata]\n");
+    let Some(metadata) = metadata else {
+        out.push_str("difficulty = 1\n\n");
+        return;
+    };
+    out.push_str(&format!("topics = {}\n", string_array(&metadata.topics)));
+    out.push_str(&format!(
+        "techniques = {}\n",
+        string_array(&metadata.techniques)
+    ));
+    out.push_str(&format!(
+        "data_structures = {}\n",
+        string_array(&metadata.data_structures)
+    ));
+    out.push_str(&format!("difficulty = {}\n\n", metadata.difficulty));
+}
+
 fn toml_string(s: &str) -> String {
     format!("{:?}", s)
+}
+
+fn string_array(items: &[String]) -> String {
+    let values: Vec<_> = items.iter().map(|item| toml_string(item)).collect();
+    format!("[{}]", values.join(", "))
 }
 
 fn number_array(numbers: &[u32]) -> String {

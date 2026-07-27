@@ -17,6 +17,7 @@ const STORY: &str = include_str!("../prompts/lio2024/story.md");
 const INPUT: &str = include_str!("../prompts/lio2024/input.md");
 const OUTPUT: &str = include_str!("../prompts/lio2024/output.md");
 const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
+const METADATA: &str = include_str!("../prompts/lio2024/metadata.md");
 const SOLUTION: &str = include_str!("../prompts/lio2024/solution.md");
 
 pub struct StatementParts {
@@ -24,8 +25,18 @@ pub struct StatementParts {
     pub input: String,
     pub output: String,
     pub subtasks: Vec<String>,
+    pub metadata: TaskMetadata,
     pub solutions: Vec<SolutionEstimate>,
     pub usage: TokenUsage,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskMetadata {
+    pub topics: Vec<String>,
+    pub techniques: Vec<String>,
+    pub data_structures: Vec<String>,
+    pub difficulty: u8,
 }
 
 pub struct SolutionEstimate {
@@ -81,6 +92,7 @@ pub fn import_statement(
         &mut on_progress,
     )?;
     let subtasks = parse_subtasks(&subtasks_raw, subtask_count)?;
+    let metadata = ask_metadata(&mut chat, &mut usage, &mut on_progress)?;
     let (solutions, solution_usage) =
         estimate_solutions(&mut chat, solutions, &subtasks, cpu_ms, &mut on_progress)?;
     usage += solution_usage;
@@ -89,9 +101,19 @@ pub fn import_statement(
         input,
         output,
         subtasks,
+        metadata,
         solutions,
         usage,
     })
+}
+
+fn ask_metadata(
+    chat: &mut Chat,
+    usage: &mut TokenUsage,
+    on_progress: &mut impl FnMut(StatementEvent),
+) -> Result<TaskMetadata> {
+    let raw = ask_counted(chat, "metadata", METADATA, usage, on_progress)?;
+    parse_metadata(&raw)
 }
 
 fn ask_counted(
@@ -321,6 +343,22 @@ fn parse_subtasks(raw: &str, expected: usize) -> Result<Vec<String>> {
         bail!("empty subtask description");
     }
     Ok(items.into_iter().map(|s| s.trim().to_string()).collect())
+}
+
+fn parse_metadata(raw: &str) -> Result<TaskMetadata> {
+    let metadata: TaskMetadata =
+        serde_json::from_str(strip_json_fence(raw)).context("parse task metadata JSON")?;
+    if !(1..=5).contains(&metadata.difficulty) {
+        bail!("task difficulty out of range");
+    }
+    if metadata.topics.is_empty()
+        || metadata.topics.len() > 2
+        || metadata.techniques.len() > 4
+        || metadata.data_structures.len() > 3
+    {
+        bail!("too many or no classification tags");
+    }
+    Ok(metadata)
 }
 
 fn estimate_solutions(
