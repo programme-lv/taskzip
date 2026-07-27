@@ -151,7 +151,7 @@ fn import_lio2024_fixture() {
         .arg("lio2024")
         .arg(&src)
         .arg(&dest_parent)
-        .arg("--skip-statement-import")
+        .arg("--skip-ai-import")
         .assert()
         .success()
         .stdout(predicate::str::contains("ok: imported lio2024"));
@@ -165,9 +165,20 @@ fn import_lio2024_fixture() {
     assert!(fs::read_to_string(dest.join("statement/lv.md"))
         .unwrap()
         .contains("# TODO"));
-    assert!(fs::read_to_string(dest.join("readme.md"))
-        .unwrap()
-        .contains("port statement"));
+    let task_toml = fs::read_to_string(dest.join("task.toml")).unwrap();
+    assert!(task_toml.contains("lv = \"1. apakšuzdevums\""));
+    let readme = fs::read_to_string(dest.join("readme.md")).unwrap();
+    assert!(readme.contains("port statement"));
+    assert!(readme.contains("replace placeholder subtask descriptions"));
+    bin()
+        .arg("import")
+        .arg("lio2024")
+        .arg(&src)
+        .arg(&dest_parent)
+        .arg("--skip-statement-import")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument"));
     let src_zip = dir.path().join("tiny.zip");
     let zip_dest = dir.path().join("output/tiny");
     fs::create_dir_all(&zip_dest).unwrap();
@@ -177,7 +188,7 @@ fn import_lio2024_fixture() {
         .arg("lio2024")
         .arg(&src_zip)
         .arg(&zip_dest)
-        .arg("--skip-statement-import")
+        .arg("--skip-ai-import")
         .assert()
         .success()
         .stdout(predicate::str::contains("ok: imported lio2024"));

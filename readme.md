@@ -31,7 +31,7 @@ taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
-taskzip import lio2024 <src> <dest> [--skip-statement-import]
+taskzip import lio2024 <src> <dest> [--skip-ai-import]
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
@@ -44,7 +44,7 @@ taskzip verify <package>
 
 `import lio2024` converts an LIO 2024 task directory or `.zip` with `task.yaml` and `tests_archive` into a TaskZip package. `<dest>` must be an existing parent directory, and `<dest>/<id>` must not exist. A task with id `foo` is written to `<dest>/foo/task.toml`.
 
-By default, import sends the single `teksts/*.typ` source and available image filenames to OpenAI in three sequential Chat Completions requests, then writes the story, input, and output sections without translating or correcting the source prose. Set `OPENAI_API_KEY` in the environment or a `.env` file. `OPENAI_MODEL` overrides the unverified default `gpt-5.6-luna`; set it if that model is unavailable. Interactive statement import is not supported. Use `--skip-statement-import` for interactive tasks or an offline import that retains the statement TODO.
+By default, import sends the single `teksts/*.typ` source and available image filenames to OpenAI in four sequential Chat Completions requests: story, input, output, and subtask descriptions. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections are written to `statement/lv.md`; subtask restriction text is written to `[subtasks.description]` in `task.toml`. Source prose is not translated or corrected. Set `OPENAI_API_KEY` in the environment or a `.env` file. `OPENAI_MODEL` overrides the unverified default `gpt-5.6-luna`; set it if that model is unavailable. Interactive AI import is not supported. Use `--skip-ai-import` for interactive tasks or an offline import that keeps statement and subtask-description TODOs.
 
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 

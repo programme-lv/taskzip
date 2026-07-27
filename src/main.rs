@@ -47,7 +47,7 @@ enum Command {
         src: PathBuf,
         dest: PathBuf,
         #[arg(long)]
-        skip_statement_import: bool,
+        skip_ai_import: bool,
     },
     #[command(about = "Compile registered C++ solutions, run official tests, and print scores")]
     RunSolutions {
@@ -111,8 +111,8 @@ fn main() -> Result<()> {
             format,
             src,
             dest,
-            skip_statement_import,
-        } => run_import(format, src, dest, skip_statement_import),
+            skip_ai_import,
+        } => run_import(format, src, dest, skip_ai_import),
     }
 }
 
@@ -242,12 +242,10 @@ fn run_import(
     format: ExternalFormat,
     src: PathBuf,
     dest: PathBuf,
-    skip_statement_import: bool,
+    skip_ai_import: bool,
 ) -> Result<()> {
     let dest = match format {
-        ExternalFormat::Lio2024 => {
-            import::lio2024(&src, &dest, skip_statement_import, progress::print)?
-        }
+        ExternalFormat::Lio2024 => import::lio2024(&src, &dest, skip_ai_import, progress::print)?,
     };
     println!("ok: imported {} to {}", format, dest.display());
     Ok(())

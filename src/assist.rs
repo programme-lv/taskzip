@@ -12,11 +12,13 @@ const FORMAT: &str = include_str!("../prompts/lio2024/format.md");
 const STORY: &str = include_str!("../prompts/lio2024/story.md");
 const INPUT: &str = include_str!("../prompts/lio2024/input.md");
 const OUTPUT: &str = include_str!("../prompts/lio2024/output.md");
+const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
 
 pub struct StatementParts {
     pub story: String,
     pub input: String,
     pub output: String,
+    pub subtasks: Vec<String>,
     pub usage: TokenUsage,
 }
 
@@ -46,6 +48,7 @@ pub enum StatementEvent {
 pub fn import_statement(
     typ_source: &str,
     images: &[String],
+    subtask_count: usize,
     mut on_progress: impl FnMut(StatementEvent),
 ) -> Result<StatementParts> {
     let system = render_system(typ_source, images)?;
@@ -54,13 +57,19 @@ pub fn import_statement(
     let (story, story_usage) = ask_part(&mut chat, "story", STORY, &mut on_progress)?;
     let (input, input_usage) = ask_part(&mut chat, "input", INPUT, &mut on_progress)?;
     let (output, output_usage) = ask_part(&mut chat, "output", OUTPUT, &mut on_progress)?;
+    let subtasks_prompt = render_subtasks(subtask_count)?;
+    let (subtasks_raw, subtasks_usage) =
+        ask_part(&mut chat, "subtasks", &subtasks_prompt, &mut on_progress)?;
+    let subtasks = parse_subtasks(&subtasks_raw, subtask_count)?;
     let mut usage = story_usage;
     usage += input_usage;
     usage += output_usage;
+    usage += subtasks_usage;
     Ok(StatementParts {
         story,
         input,
         output,
+        subtasks,
         usage,
     })
 }
@@ -207,14 +216,53 @@ fn parse_response(response: reqwest::blocking::Response) -> Result<(String, Toke
     Ok((content, usage))
 }
 
+fn parse_subtasks(raw: &str, expected: usize) -> Result<Vec<String>> {
+    let text = strip_json_fence(raw);
+    let items: Vec<String> =
+        serde_json::from_str(text).context("parse subtask descriptions JSON")?;
+    if items.len() != expected {
+        bail!(
+            "subtask description count {}, expected {}",
+            items.len(),
+            expected
+        );
+    }
+    if items.iter().any(|s| s.trim().is_empty()) {
+        bail!("empty subtask description");
+    }
+    Ok(items.into_iter().map(|s| s.trim().to_string()).collect())
+}
+
+fn strip_json_fence(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    let Some(rest) = trimmed.strip_prefix("```") else {
+        return trimmed;
+    };
+    let rest = rest
+        .strip_prefix("json")
+        .or_else(|| rest.strip_prefix("JSON"))
+        .unwrap_or(rest)
+        .trim_start();
+    rest.strip_suffix("```").map(str::trim).unwrap_or(trimmed)
+}
+
 fn render_system(typ_source: &str, images: &[String]) -> Result<String> {
     let values = [
         ("format_rules", FORMAT.trim()),
         ("typ_source", typ_source),
         ("image_names", &image_list(images)),
     ];
-    let mut check = SYSTEM.to_string();
-    for (name, _) in &values {
+    render_template(SYSTEM, &values)
+}
+
+fn render_subtasks(count: usize) -> Result<String> {
+    let count = count.to_string();
+    render_template(SUBTASKS, &[("count", &count)])
+}
+
+fn render_template(template: &str, values: &[(&str, &str)]) -> Result<String> {
+    let mut check = template.to_string();
+    for (name, _) in values {
         let marker = format!("{{{{{name}}}}}");
         if check.matches(&marker).count() != 1 {
             bail!("prompt placeholder {marker}");
@@ -224,7 +272,7 @@ fn render_system(typ_source: &str, images: &[String]) -> Result<String> {
     if check.contains("{{") || check.contains("}}") {
         bail!("unknown prompt placeholder");
     }
-    let mut out = SYSTEM.to_string();
+    let mut out = template.to_string();
     for (name, value) in values {
         out = out.replace(&format!("{{{{{name}}}}}"), value);
     }
