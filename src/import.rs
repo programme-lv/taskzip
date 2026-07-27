@@ -276,17 +276,20 @@ impl LioTask {
         } else {
             Some(self.import_ai(src, &images, on_progress)?)
         };
-        let descriptions = ai.as_ref().map(|parts| parts.subtasks.clone());
+        let descriptions = ai.as_ref().map(|parts| parts.subtasks.as_slice());
+        let solutions = ai.as_ref().map(|parts| parts.solutions.as_slice());
         stage(on_progress, 0, "write meta");
-        self.write_meta(dest, descriptions.as_deref())?;
+        self.write_meta(dest, descriptions, solutions)?;
         detail(on_progress, 1, "task.toml");
         stage(on_progress, 0, "write tests");
         self.write_tests(dest)?;
         detail(on_progress, 1, self.tests_summary());
         self.write_statement(dest, &images, ai.as_ref(), skip_ai_import, on_progress)?;
-        stage(on_progress, 0, "write readme");
-        self.write_readme(dest, !skip_ai_import)?;
-        detail(on_progress, 1, "readme.md");
+        if !todo_items(!skip_ai_import).is_empty() {
+            stage(on_progress, 0, "write readme");
+            self.write_readme(dest, !skip_ai_import)?;
+            detail(on_progress, 1, "readme.md");
+        }
         Ok(())
     }
 
@@ -323,19 +326,25 @@ impl LioTask {
         format!("tests/ ({official} pairs), examples/ ({examples} pairs), tgroups.txt")
     }
 
-    fn write_meta(&self, dest: &Path, descriptions: Option<&[String]>) -> Result<()> {
-        fs::write(dest.join("task.toml"), self.task_toml(descriptions)?)?;
+    fn write_meta(
+        &self,
+        dest: &Path,
+        descriptions: Option<&[String]>,
+        solutions: Option<&[assist::SolutionEstimate]>,
+    ) -> Result<()> {
+        fs::write(
+            dest.join("task.toml"),
+            self.task_toml(descriptions, solutions)?,
+        )?;
         Ok(())
     }
 
-    fn task_toml(&self, descriptions: Option<&[String]>) -> Result<String> {
+    fn task_toml(
+        &self,
+        descriptions: Option<&[String]>,
+        solutions: Option<&[assist::SolutionEstimate]>,
+    ) -> Result<String> {
         let official_count = self.tests.iter().filter(|t| t.group != 0).count();
-        let total: u32 = self
-            .groups
-            .iter()
-            .filter(|g| g.id != 0)
-            .map(|g| g.points)
-            .sum();
         let mut out = String::new();
         out.push_str("taskzip = 1\n");
         out.push_str(&format!("id = {}\n\n", toml_string(&self.id)));
@@ -349,22 +358,59 @@ impl LioTask {
         out.push_str("[metadata]\n");
         out.push_str("difficulty = 1\n\n");
         out.push_str(&self.subtasks_toml(descriptions)?);
-        for sol in &self.solutions {
-            out.push_str("[[solutions]]\n");
-            out.push_str(&format!("fname = {}\n", toml_string(sol)));
-            if sol.to_lowercase().contains("ok") {
-                out.push_str(&format!(
-                    "subtasks = {}\n",
-                    subtasks_array(self.subtask_count())
-                ));
-                out.push_str(&format!("score = {}\n", total));
-            }
-            out.push('\n');
-        }
+        out.push_str(&self.solutions_toml(solutions)?);
         if official_count == 0 {
             bail!("no official tests");
         }
         Ok(out)
+    }
+
+    fn solutions_toml(&self, estimates: Option<&[assist::SolutionEstimate]>) -> Result<String> {
+        let mut out = String::new();
+        for fname in &self.solutions {
+            out.push_str("[[solutions]]\n");
+            out.push_str(&format!("fname = {}\n", toml_string(fname)));
+            if let Some(items) = estimates {
+                let estimate = items
+                    .iter()
+                    .find(|item| item.fname == *fname)
+                    .ok_or_else(|| anyhow::anyhow!("missing solution estimate: {fname}"))?;
+                self.write_solution_estimate(&mut out, &estimate.subtasks)?;
+            } else if fname.to_lowercase().contains("ok") {
+                let subtasks: Vec<_> = (1..=self.subtask_count() as u32).collect();
+                self.write_solution_estimate(&mut out, &subtasks)?;
+            }
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    fn write_solution_estimate(&self, out: &mut String, subtasks: &[u32]) -> Result<()> {
+        out.push_str(&format!("subtasks = {}\n", number_array(subtasks)));
+        out.push_str(&format!("score = {}\n", self.score_for_subtasks(subtasks)?));
+        Ok(())
+    }
+
+    fn score_for_subtasks(&self, subtasks: &[u32]) -> Result<u32> {
+        let source_ids: Vec<_> = self
+            .subtask_points
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter(|(_, points)| **points != 0)
+            .map(|(id, _)| id as u32)
+            .collect();
+        let selected: Vec<_> = subtasks
+            .iter()
+            .map(|id| source_ids.get(*id as usize - 1).copied())
+            .collect::<Option<_>>()
+            .ok_or_else(|| anyhow::anyhow!("solution subtask out of range"))?;
+        Ok(self
+            .groups
+            .iter()
+            .filter(|g| g.id != 0 && selected.contains(&g.subtask))
+            .map(|g| g.points)
+            .sum())
     }
 
     fn write_origin(&self, out: &mut String) {
@@ -503,9 +549,15 @@ impl LioTask {
             bail!("interactive AI import unsupported");
         }
         let source = read_typ_source(src)?;
-        let parts = assist::import_statement(&source, images, self.subtask_count(), |event| {
-            report_statement_event(on_progress, event)
-        })?;
+        let solutions = read_solution_sources(src, &self.solutions)?;
+        let parts = assist::import_statement(
+            &source,
+            images,
+            self.subtask_count(),
+            self.cpu_ms,
+            &solutions,
+            |event| report_statement_event(on_progress, event),
+        )?;
         detail(
             on_progress,
             1,
@@ -671,16 +723,26 @@ fn report_statement_event(on_progress: &mut impl FnMut(Event), event: assist::St
             detail(on_progress, 1, format!("model {model}"));
         }
         assist::StatementEvent::Start(part) => stage(on_progress, 1, part),
-        assist::StatementEvent::Done { usage, elapsed, .. } => detail(
-            on_progress,
-            2,
-            format!(
-                "{} input, {} output tokens, {}",
-                usage.input,
-                usage.output,
+        assist::StatementEvent::Done {
+            usage,
+            elapsed,
+            cached,
+            ..
+        } => {
+            let suffix = if cached {
+                "cached".into()
+            } else {
                 progress::duration(elapsed)
-            ),
-        ),
+            };
+            detail(
+                on_progress,
+                2,
+                format!(
+                    "{} input, {} output tokens, {suffix}",
+                    usage.input, usage.output
+                ),
+            )
+        }
     }
 }
 
@@ -706,12 +768,15 @@ fn todo_items(ai_imported: bool) -> Vec<&'static str> {
     if !ai_imported {
         items.push("port statement from `archive/original/teksts/` to `statement/lv.md`");
         items.push("replace placeholder subtask descriptions");
+        items.push("review imported solution scores");
     }
-    items.push("review imported solution scores");
     items
 }
 
 fn report_todos(on_progress: &mut impl FnMut(Event), ai_imported: bool) {
+    if todo_items(ai_imported).is_empty() {
+        return;
+    }
     stage(on_progress, 0, "remaining TODOs");
     for item in todo_items(ai_imported) {
         detail(on_progress, 1, format!("- {item}"));
@@ -996,6 +1061,18 @@ fn cpp_solutions(src: &Path) -> Result<Vec<String>> {
     Ok(out)
 }
 
+fn read_solution_sources(src: &Path, names: &[String]) -> Result<Vec<(String, String)>> {
+    names
+        .iter()
+        .map(|name| {
+            let path = src.join("risin").join(name);
+            let source =
+                fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            Ok((name.clone(), source))
+        })
+        .collect()
+}
+
 fn has_visible_input(src: &Path) -> Result<bool> {
     for path in files_under(&src.join("teksts"))? {
         if path.extension().and_then(|s| s.to_str()) != Some("typ") {
@@ -1015,7 +1092,7 @@ fn toml_string(s: &str) -> String {
     format!("{:?}", s)
 }
 
-fn subtasks_array(count: usize) -> String {
-    let values: Vec<_> = (1..=count).map(|i| i.to_string()).collect();
+fn number_array(numbers: &[u32]) -> String {
+    let values: Vec<_> = numbers.iter().map(u32::to_string).collect();
     format!("[{}]", values.join(", "))
 }

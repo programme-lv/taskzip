@@ -1,7 +1,11 @@
 use anyhow::{bail, Context, Result};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::io::Write;
 use std::ops::AddAssign;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -13,16 +17,23 @@ const STORY: &str = include_str!("../prompts/lio2024/story.md");
 const INPUT: &str = include_str!("../prompts/lio2024/input.md");
 const OUTPUT: &str = include_str!("../prompts/lio2024/output.md");
 const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
+const SOLUTION: &str = include_str!("../prompts/lio2024/solution.md");
 
 pub struct StatementParts {
     pub story: String,
     pub input: String,
     pub output: String,
     pub subtasks: Vec<String>,
+    pub solutions: Vec<SolutionEstimate>,
     pub usage: TokenUsage,
 }
 
-#[derive(Clone, Copy, Default)]
+pub struct SolutionEstimate {
+    pub fname: String,
+    pub subtasks: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
 pub struct TokenUsage {
     pub input: u64,
     pub output: u64,
@@ -37,11 +48,12 @@ impl AddAssign for TokenUsage {
 
 pub enum StatementEvent {
     Model(String),
-    Start(&'static str),
+    Start(String),
     Done {
-        part: &'static str,
+        part: String,
         usage: TokenUsage,
         elapsed: Duration,
+        cached: bool,
     },
 }
 
@@ -49,44 +61,65 @@ pub fn import_statement(
     typ_source: &str,
     images: &[String],
     subtask_count: usize,
+    cpu_ms: u32,
+    solutions: &[(String, String)],
     mut on_progress: impl FnMut(StatementEvent),
 ) -> Result<StatementParts> {
     let system = render_system(typ_source, images)?;
     let mut chat = Chat::new(system)?;
     on_progress(StatementEvent::Model(chat.model.clone()));
-    let (story, story_usage) = ask_part(&mut chat, "story", STORY, &mut on_progress)?;
-    let (input, input_usage) = ask_part(&mut chat, "input", INPUT, &mut on_progress)?;
-    let (output, output_usage) = ask_part(&mut chat, "output", OUTPUT, &mut on_progress)?;
+    let mut usage = TokenUsage::default();
+    let story = ask_counted(&mut chat, "story", STORY, &mut usage, &mut on_progress)?;
+    let input = ask_counted(&mut chat, "input", INPUT, &mut usage, &mut on_progress)?;
+    let output = ask_counted(&mut chat, "output", OUTPUT, &mut usage, &mut on_progress)?;
     let subtasks_prompt = render_subtasks(subtask_count)?;
-    let (subtasks_raw, subtasks_usage) =
-        ask_part(&mut chat, "subtasks", &subtasks_prompt, &mut on_progress)?;
+    let subtasks_raw = ask_counted(
+        &mut chat,
+        "subtasks",
+        &subtasks_prompt,
+        &mut usage,
+        &mut on_progress,
+    )?;
     let subtasks = parse_subtasks(&subtasks_raw, subtask_count)?;
-    let mut usage = story_usage;
-    usage += input_usage;
-    usage += output_usage;
-    usage += subtasks_usage;
+    let (solutions, solution_usage) =
+        estimate_solutions(&mut chat, solutions, &subtasks, cpu_ms, &mut on_progress)?;
+    usage += solution_usage;
     Ok(StatementParts {
         story,
         input,
         output,
         subtasks,
+        solutions,
         usage,
     })
 }
 
+fn ask_counted(
+    chat: &mut Chat,
+    part: &str,
+    prompt: &str,
+    usage: &mut TokenUsage,
+    on_progress: &mut impl FnMut(StatementEvent),
+) -> Result<String> {
+    let (content, used) = ask_part(chat, part, prompt, on_progress)?;
+    *usage += used;
+    Ok(content)
+}
+
 fn ask_part(
     chat: &mut Chat,
-    part: &'static str,
+    part: &str,
     prompt: &str,
     on_progress: &mut impl FnMut(StatementEvent),
 ) -> Result<(String, TokenUsage)> {
-    on_progress(StatementEvent::Start(part));
+    on_progress(StatementEvent::Start(part.to_string()));
     let start = Instant::now();
-    let (content, usage) = chat.ask(prompt)?;
+    let (content, usage, cached) = chat.ask(prompt)?;
     on_progress(StatementEvent::Done {
-        part,
+        part: part.to_string(),
         usage,
         elapsed: start.elapsed(),
+        cached,
     });
     Ok((content, usage))
 }
@@ -118,12 +151,18 @@ impl Chat {
         })
     }
 
-    fn ask(&mut self, prompt: &str) -> Result<(String, TokenUsage)> {
+    fn ask(&mut self, prompt: &str) -> Result<(String, TokenUsage, bool)> {
         self.messages.push(Message::new("user", prompt.trim()));
         let request = ChatRequest {
             model: &self.model,
             messages: &self.messages,
         };
+        let cache_path = response_cache_path(&request)?;
+        if let Some(response) = read_cached_response(&cache_path)? {
+            self.messages
+                .push(Message::new("assistant", &response.content));
+            return Ok((response.content, response.usage, true));
+        }
         let response = self
             .client
             .post(API_URL)
@@ -131,9 +170,15 @@ impl Chat {
             .json(&request)
             .send()
             .context("OpenAI request")?;
-        let (content, usage) = parse_response(response)?;
-        self.messages.push(Message::new("assistant", &content));
-        Ok((content, usage))
+        let response = parse_response(response)?;
+        write_cached_response(&cache_path, &response)?;
+        self.messages
+            .push(Message::new("assistant", &response.content));
+        Ok((response.content, response.usage, false))
+    }
+
+    fn reset(&mut self) {
+        self.messages.truncate(1);
     }
 }
 
@@ -156,6 +201,12 @@ impl Message {
 struct ChatRequest<'a> {
     model: &'a str,
     messages: &'a [Message],
+}
+
+#[derive(Deserialize, Serialize)]
+struct CachedResponse {
+    content: String,
+    usage: TokenUsage,
 }
 
 #[derive(Deserialize)]
@@ -190,7 +241,7 @@ struct ApiError {
     message: String,
 }
 
-fn parse_response(response: reqwest::blocking::Response) -> Result<(String, TokenUsage)> {
+fn parse_response(response: reqwest::blocking::Response) -> Result<CachedResponse> {
     let status = response.status();
     let body = response.text().context("read OpenAI response")?;
     if !status.is_success() {
@@ -213,7 +264,46 @@ fn parse_response(response: reqwest::blocking::Response) -> Result<(String, Toke
         input: response.usage.prompt_tokens,
         output: response.usage.completion_tokens,
     };
-    Ok((content, usage))
+    Ok(CachedResponse { content, usage })
+}
+
+fn response_cache_path(request: &ChatRequest<'_>) -> Result<PathBuf> {
+    let body = serde_json::to_vec(request)?;
+    let mut hash = Sha256::new();
+    hash.update(API_URL);
+    hash.update([0]);
+    hash.update(body);
+    Ok(user_cache_root()?.join(format!("{:x}.json", hash.finalize())))
+}
+
+fn user_cache_root() -> Result<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .ok_or_else(|| anyhow::anyhow!("no cache home"))?;
+    Ok(base.join("taskzip").join("openai"))
+}
+
+fn read_cached_response(path: &Path) -> Result<Option<CachedResponse>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let body =
+        fs::read_to_string(path).with_context(|| format!("read AI cache {}", path.display()))?;
+    let response = serde_json::from_str(&body)
+        .with_context(|| format!("parse AI cache {}", path.display()))?;
+    Ok(Some(response))
+}
+
+fn write_cached_response(path: &Path, response: &CachedResponse) -> Result<()> {
+    let dir = path.parent().unwrap();
+    fs::create_dir_all(dir).with_context(|| format!("create AI cache {}", dir.display()))?;
+    let mut temp = tempfile::NamedTempFile::new_in(dir)?;
+    temp.write_all(&serde_json::to_vec(response)?)?;
+    temp.persist(path)
+        .with_context(|| format!("write AI cache {}", path.display()))?;
+    Ok(())
 }
 
 fn parse_subtasks(raw: &str, expected: usize) -> Result<Vec<String>> {
@@ -231,6 +321,42 @@ fn parse_subtasks(raw: &str, expected: usize) -> Result<Vec<String>> {
         bail!("empty subtask description");
     }
     Ok(items.into_iter().map(|s| s.trim().to_string()).collect())
+}
+
+fn estimate_solutions(
+    chat: &mut Chat,
+    sources: &[(String, String)],
+    subtasks: &[String],
+    cpu_ms: u32,
+    on_progress: &mut impl FnMut(StatementEvent),
+) -> Result<(Vec<SolutionEstimate>, TokenUsage)> {
+    let mut estimates = Vec::new();
+    let mut usage = TokenUsage::default();
+    for (fname, source) in sources {
+        chat.reset();
+        let prompt = render_solution(fname, source, subtasks, cpu_ms)?;
+        let part = format!("solution {fname}");
+        let (raw, used) = ask_part(chat, &part, &prompt, on_progress)?;
+        usage += used;
+        estimates.push(SolutionEstimate {
+            fname: fname.clone(),
+            subtasks: parse_solution_subtasks(&raw, subtasks.len(), fname)?,
+        });
+    }
+    Ok((estimates, usage))
+}
+
+fn parse_solution_subtasks(raw: &str, count: usize, fname: &str) -> Result<Vec<u32>> {
+    let mut ids: Vec<u32> =
+        serde_json::from_str(strip_json_fence(raw)).context("parse solution subtasks JSON")?;
+    ids.sort_unstable();
+    if ids.iter().any(|id| *id == 0 || *id as usize > count) {
+        bail!("{fname}: solution subtask out of range");
+    }
+    if ids.windows(2).any(|pair| pair[0] == pair[1]) {
+        bail!("{fname}: duplicate solution subtask");
+    }
+    Ok(ids)
 }
 
 fn strip_json_fence(raw: &str) -> &str {
@@ -258,6 +384,25 @@ fn render_system(typ_source: &str, images: &[String]) -> Result<String> {
 fn render_subtasks(count: usize) -> Result<String> {
     let count = count.to_string();
     render_template(SUBTASKS, &[("count", &count)])
+}
+
+fn render_solution(fname: &str, source: &str, subtasks: &[String], cpu_ms: u32) -> Result<String> {
+    let cpu_ms = cpu_ms.to_string();
+    let subtasks = subtasks
+        .iter()
+        .enumerate()
+        .map(|(i, text)| format!("{}. {text}", i + 1))
+        .collect::<Vec<_>>()
+        .join("\n");
+    render_template(
+        SOLUTION,
+        &[
+            ("fname", fname),
+            ("source", source),
+            ("subtasks", &subtasks),
+            ("cpu_ms", &cpu_ms),
+        ],
+    )
 }
 
 fn render_template(template: &str, values: &[(&str, &str)]) -> Result<String> {
