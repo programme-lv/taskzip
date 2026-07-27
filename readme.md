@@ -31,7 +31,7 @@ taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
-taskzip import lio2024 <src> <dest> [--skip-ai-import]
+taskzip import lio2024 <src> <dest> [--year YEAR] [--stage STAGE] [--authors NAMES] [--skip-ai-import]
 taskzip run-solutions <package>
 taskzip verify <package>
 ```
@@ -43,6 +43,8 @@ taskzip verify <package>
 `tests answers` runs the model solution on `NNNi.txt` inputs from `--in` (default `.taskzip/generated`) and writes matching `NNNo.txt` files to `--out` (default: same directory). Use `--write` to read from and write to `tests/`. The model solution defaults to the first `[[solutions]]` entry whose `score` equals `scoring.total`; use `--solution` to choose one explicitly.
 
 `import lio2024` converts an LIO 2024 task directory or `.zip` with `task.yaml` and `tests_archive` into a TaskZip package. `<dest>` must be an existing parent directory, and `<dest>/<id>` must not exist. A task with id `foo` is written to `<dest>/foo/task.toml`.
+
+The importer prompts for missing origin metadata. Stage choices are `school`, `municipal`, `national`, and `selection`. Year accepts `YYYY` or an academic-year form such as `2025/2026`, which is stored as `2026`; valid years run from 1986 through the current year. Use the olympiad edition year even when a school or warm-up stage took place late in the previous calendar year. Authors are optional and comma-separated. `--year`, `--stage`, and `--authors` avoid prompts in scripts.
 
 By default, import sends the single `teksts/*.typ` source and available image filenames to OpenAI in four sequential Chat Completions requests: story, input, output, and subtask descriptions. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections are written to `statement/lv.md`; subtask restriction text is written to `[subtasks.description]` in `task.toml`. Source prose is not translated or corrected. Set `OPENAI_API_KEY` in the environment or a `.env` file. `OPENAI_MODEL` overrides the unverified default `gpt-5.6-luna`; set it if that model is unavailable. Interactive AI import is not supported. Use `--skip-ai-import` for interactive tasks or an offline import that keeps statement and subtask-description TODOs.
 

@@ -5,8 +5,10 @@ use taskzip::import;
 use taskzip::package;
 use taskzip::progress;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use chrono::{Datelike, Local};
 use clap::{Parser, Subcommand, ValueEnum};
+use dialoguer::{Input, Select};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -23,6 +25,20 @@ enum ExternalFormat {
 }
 
 impl std::fmt::Display for ExternalFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_possible_value().unwrap().get_name())
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum LioStage {
+    School,
+    Municipal,
+    National,
+    Selection,
+}
+
+impl std::fmt::Display for LioStage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.to_possible_value().unwrap().get_name())
     }
@@ -48,6 +64,12 @@ enum Command {
         dest: PathBuf,
         #[arg(long)]
         skip_ai_import: bool,
+        #[arg(long, value_parser = parse_lio_year)]
+        year: Option<i32>,
+        #[arg(long, value_enum)]
+        stage: Option<LioStage>,
+        #[arg(long, help = "Comma-separated task authors; empty allowed")]
+        authors: Option<String>,
     },
     #[command(about = "Compile registered C++ solutions, run official tests, and print scores")]
     RunSolutions {
@@ -112,7 +134,10 @@ fn main() -> Result<()> {
             src,
             dest,
             skip_ai_import,
-        } => run_import(format, src, dest, skip_ai_import),
+            year,
+            stage,
+            authors,
+        } => run_import(format, src, dest, skip_ai_import, year, stage, authors),
     }
 }
 
@@ -243,10 +268,111 @@ fn run_import(
     src: PathBuf,
     dest: PathBuf,
     skip_ai_import: bool,
+    year: Option<i32>,
+    stage: Option<LioStage>,
+    authors: Option<String>,
 ) -> Result<()> {
+    let origin = lio_origin(year, stage, authors)?;
     let dest = match format {
-        ExternalFormat::Lio2024 => import::lio2024(&src, &dest, skip_ai_import, progress::print)?,
+        ExternalFormat::Lio2024 => {
+            import::lio2024(&src, &dest, origin, skip_ai_import, progress::print)?
+        }
     };
     println!("ok: imported {} to {}", format, dest.display());
     Ok(())
+}
+
+fn lio_origin(
+    year: Option<i32>,
+    stage: Option<LioStage>,
+    authors: Option<String>,
+) -> Result<import::LioOrigin> {
+    let year = match year {
+        Some(year) => year,
+        None => prompt_year()?,
+    };
+    let stage = match stage {
+        Some(stage) => stage,
+        None => prompt_stage()?,
+    };
+    let authors = match authors {
+        Some(authors) => authors,
+        None => Input::new()
+            .with_prompt("Authors (comma-separated, optional)")
+            .allow_empty(true)
+            .interact_text()
+            .context("read authors")?,
+    };
+    Ok(import::LioOrigin {
+        year,
+        stage: stage.to_string(),
+        authors: parse_authors(&authors),
+    })
+}
+
+fn prompt_year() -> Result<i32> {
+    let current = current_year();
+    let input: String = Input::new()
+        .with_prompt("Year (YYYY or YYYY/YYYY)")
+        .default(current.to_string())
+        .validate_with(|value: &String| parse_lio_year(value).map(|_| ()))
+        .interact_text()
+        .context("read year")?;
+    parse_lio_year(&input).map_err(anyhow::Error::msg)
+}
+
+fn prompt_stage() -> Result<LioStage> {
+    let stages = [
+        LioStage::School,
+        LioStage::Municipal,
+        LioStage::National,
+        LioStage::Selection,
+    ];
+    let selected = Select::new()
+        .with_prompt("Stage")
+        .items(stages)
+        .default(0)
+        .interact()
+        .context("read stage")?;
+    Ok(stages[selected])
+}
+
+fn parse_lio_year(value: &str) -> Result<i32, String> {
+    let parts: Vec<_> = value.trim().split('/').collect();
+    let year = match parts.as_slice() {
+        [year] => parse_year_number(year)?,
+        [first, second] => {
+            let first = parse_year_number(first)?;
+            let second = parse_year_number(second)?;
+            if second != first + 1 {
+                return Err("academic years must be consecutive".into());
+            }
+            second
+        }
+        _ => return Err("use YYYY or YYYY/YYYY".into()),
+    };
+    if !(1986..=current_year()).contains(&year) {
+        return Err(format!("year must be 1986-{}", current_year()));
+    }
+    Ok(year)
+}
+
+fn parse_year_number(value: &str) -> Result<i32, String> {
+    if value.len() != 4 || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("use a four-digit year".into());
+    }
+    value.parse().map_err(|_| "invalid year".into())
+}
+
+fn current_year() -> i32 {
+    Local::now().year()
+}
+
+fn parse_authors(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|author| !author.is_empty())
+        .map(str::to_string)
+        .collect()
 }

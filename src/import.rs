@@ -11,9 +11,17 @@ use tempfile::TempDir;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
+#[derive(Debug)]
+pub struct LioOrigin {
+    pub year: i32,
+    pub stage: String,
+    pub authors: Vec<String>,
+}
+
 pub fn lio2024(
     src: &Path,
     dest: &Path,
+    origin: LioOrigin,
     skip_ai_import: bool,
     mut on_progress: impl FnMut(Event),
 ) -> Result<PathBuf> {
@@ -22,7 +30,7 @@ pub fn lio2024(
         bail!("dest is not a directory: {}", dest.display());
     }
     let source = open_source(src, &mut on_progress)?;
-    let task = read_task(&source.root, &mut on_progress)?;
+    let task = read_task(&source.root, origin, &mut on_progress)?;
     let dest = dest.join(&task.id);
     if dest.exists() {
         bail!("dest already exists: {}", dest.display());
@@ -50,9 +58,13 @@ fn open_source(src: &Path, on_progress: &mut impl FnMut(Event)) -> Result<LioSou
     Ok(source)
 }
 
-fn read_task(src: &Path, on_progress: &mut impl FnMut(Event)) -> Result<LioTask> {
+fn read_task(
+    src: &Path,
+    origin: LioOrigin,
+    on_progress: &mut impl FnMut(Event),
+) -> Result<LioTask> {
     stage(on_progress, 0, "read task");
-    let task = LioTask::read(src)?;
+    let task = LioTask::read(src, origin)?;
     detail(on_progress, 1, task.summary());
     Ok(task)
 }
@@ -180,6 +192,7 @@ struct LioTask {
     tests: Vec<LioTest>,
     solutions: Vec<String>,
     visible_input: bool,
+    origin: LioOrigin,
 }
 
 #[derive(Debug, Clone)]
@@ -198,7 +211,7 @@ struct LioTest {
 }
 
 impl LioTask {
-    fn read(src: &Path) -> Result<Self> {
+    fn read(src: &Path, origin: LioOrigin) -> Result<Self> {
         let raw = RawYaml::read(&src.join("task.yaml"))?;
         let tests = read_lio_tests(&src.join(&raw.tests_archive))?;
         let testing_kind = if raw.interactor.is_some() {
@@ -223,6 +236,7 @@ impl LioTask {
             tests,
             solutions: cpp_solutions(src)?,
             visible_input: has_visible_input(src)?,
+            origin,
         })
     }
 
@@ -331,9 +345,7 @@ impl LioTask {
         out.push_str(&format!("type = {}\n", toml_string(&self.testing_kind)));
         out.push_str(&format!("cpu_ms = {}\n", self.cpu_ms));
         out.push_str(&format!("mem_mib = {}\n\n", self.mem_mib));
-        out.push_str("[origin]\n");
-        out.push_str("olymp = \"LIO\"\n");
-        out.push_str("lang = \"lv\"\n\n");
+        self.write_origin(&mut out);
         out.push_str("[metadata]\n");
         out.push_str("difficulty = 1\n\n");
         out.push_str(&self.subtasks_toml(descriptions)?);
@@ -353,6 +365,24 @@ impl LioTask {
             bail!("no official tests");
         }
         Ok(out)
+    }
+
+    fn write_origin(&self, out: &mut String) {
+        out.push_str("[origin]\n");
+        out.push_str("olymp = \"LIO\"\n");
+        out.push_str(&format!("year = {}\n", self.origin.year));
+        out.push_str(&format!("stage = {}\n", toml_string(&self.origin.stage)));
+        if !self.origin.authors.is_empty() {
+            let authors = self
+                .origin
+                .authors
+                .iter()
+                .map(|author| toml_string(author))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("authors = [{authors}]\n"));
+        }
+        out.push_str("lang = \"lv\"\n\n");
     }
 
     fn subtasks_toml(&self, descriptions: Option<&[String]>) -> Result<String> {
@@ -677,7 +707,6 @@ fn todo_items(ai_imported: bool) -> Vec<&'static str> {
         items.push("port statement from `archive/original/teksts/` to `statement/lv.md`");
         items.push("replace placeholder subtask descriptions");
     }
-    items.push("fill `origin.year`, `origin.stage`, and authors");
     items.push("review imported solution scores");
     items
 }
