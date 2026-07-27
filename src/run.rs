@@ -51,7 +51,9 @@ pub fn run(
         }
     }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().with_context(|| format!("run {}", program.display()))?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("run {}", program.display()))?;
     let out_pipe = child.stdout.take();
     let err_pipe = child.stderr.take();
     let out_handle = out_pipe.map(|mut p| thread::spawn(move || read_pipe(&mut p)));
@@ -102,7 +104,9 @@ fn read_pipe(pipe: &mut impl Read) -> Vec<u8> {
 }
 
 fn join_pipe(handle: Option<thread::JoinHandle<Vec<u8>>>) -> Vec<u8> {
-    handle.map(|h| h.join().unwrap_or_default()).unwrap_or_default()
+    handle
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default()
 }
 
 fn read_cpu(path: &Path) -> Result<Duration> {

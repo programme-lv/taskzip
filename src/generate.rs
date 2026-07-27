@@ -96,8 +96,7 @@ pub fn generate(
         let cache_path = cache_dir.join(format!("{slot}i.txt"));
         let out_path = out.join(format!("{slot}i.txt"));
         if !force && cache_hit(&cache, &slot, line, &key, &cache_path) {
-            fs::copy(&cache_path, &out_path)
-                .with_context(|| format!("copy cached {slot}i.txt"))?;
+            fs::copy(&cache_path, &out_path).with_context(|| format!("copy cached {slot}i.txt"))?;
             report.cached += 1;
             continue;
         }
@@ -120,13 +119,7 @@ pub fn generate(
     Ok(report)
 }
 
-fn cache_hit(
-    cache: &CacheFile,
-    slot: &str,
-    line: &str,
-    key: &str,
-    cache_path: &Path,
-) -> bool {
+fn cache_hit(cache: &CacheFile, slot: &str, line: &str, key: &str, cache_path: &Path) -> bool {
     let Some(entry) = cache.entries.get(slot) else {
         return false;
     };
@@ -193,11 +186,7 @@ fn produce_input(
     }
 }
 
-fn run_generator(
-    gen_bin: &Path,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<std::process::Output> {
+fn run_generator(gen_bin: &Path, args: &[&str], timeout: Duration) -> Result<std::process::Output> {
     let limits = Limits {
         wall: timeout,
         cpu: None,
@@ -265,16 +254,14 @@ fn user_cache_root() -> Result<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
         .ok_or_else(|| anyhow::anyhow!("no cache home"))?;
     Ok(base.join("taskzip").join("generate"))
 }
 
 fn package_cache_root(pkg: &Package) -> Result<PathBuf> {
-    let root = fs::canonicalize(&pkg.root)
-        .with_context(|| format!("resolve {}", pkg.root.display()))?;
+    let root =
+        fs::canonicalize(&pkg.root).with_context(|| format!("resolve {}", pkg.root.display()))?;
     let id = sha256_hex(root.to_string_lossy().as_bytes());
     Ok(user_cache_root()?.join(id))
 }

@@ -79,10 +79,7 @@ pub fn task_total(meta: &TaskMeta, test_count: usize) -> u32 {
     if meta.subtasks.is_empty() {
         return test_count as u32;
     }
-    meta.subtasks
-        .iter()
-        .map(|st| st.points.unwrap_or(0))
-        .sum()
+    meta.subtasks.iter().map(|st| st.points.unwrap_or(0)).sum()
 }
 
 pub fn task_total_pkg(pkg: &Package) -> Result<u32> {

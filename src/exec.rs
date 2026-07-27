@@ -117,7 +117,8 @@ fn model_solution(pkg: &Package, solution: Option<&str>) -> Result<String> {
 
 fn input_files(input_dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
     let mut files = Vec::new();
-    let entries = fs::read_dir(input_dir).with_context(|| format!("read {}", input_dir.display()))?;
+    let entries =
+        fs::read_dir(input_dir).with_context(|| format!("read {}", input_dir.display()))?;
     for entry in entries {
         let path = entry?.path();
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
@@ -259,7 +260,12 @@ fn run_checker(
     Ok(status.success())
 }
 
-fn run_interactor(interactor: &Path, input: &Path, solution: &Path, limits: Limits) -> Result<bool> {
+fn run_interactor(
+    interactor: &Path,
+    input: &Path,
+    solution: &Path,
+    limits: Limits,
+) -> Result<bool> {
     let out = run::run(
         interactor,
         &[input.to_str().unwrap(), solution.to_str().unwrap()],
