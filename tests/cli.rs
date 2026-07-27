@@ -197,6 +197,7 @@ fn import_lio2024_fixture() {
     let readme = fs::read_to_string(dest.join("readme.md")).unwrap();
     assert!(readme.contains("port statement"));
     assert!(readme.contains("replace placeholder subtask descriptions"));
+    assert!(readme.contains("set task difficulty and classification tags"));
     bin()
         .arg("import")
         .arg("lio2024")

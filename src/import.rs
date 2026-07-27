@@ -762,6 +762,7 @@ fn todo_items(ai_imported: bool) -> Vec<&'static str> {
         items.push("replace placeholder subtask descriptions");
         items.push("review imported solution scores");
     }
+    items.push("set task difficulty and classification tags");
     items
 }
 
