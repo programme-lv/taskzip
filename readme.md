@@ -32,7 +32,6 @@ taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
 taskzip import lio2024 <src> <dest> [--year YEAR] [--stage STAGE] [--authors NAMES] [--skip-ai-import]
-taskzip run-solutions <package>
 taskzip verify <package>
 ```
 
@@ -69,7 +68,7 @@ See the TaskZip specification for the full format.
 
 ## Security
 
-`tests generate`, `tests answers`, `tests validate`, `run-solutions`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
+`tests generate`, `tests answers`, `tests validate`, and `verify` compile and execute C++ from the package (`testspec/*.cpp`, `checker.cpp`, `interactor.cpp`, `solutions/*.cpp`) without sandboxing.
 
 **TODO:** sandbox or isolate untrusted package code before running it.
 
@@ -83,7 +82,7 @@ From the repo root:
 cargo test
 ```
 
-`g++` is required for tests that compile and run the fixture solution (`run-solutions`, `verify`). Those tests skip themselves if `g++` is missing.
+`g++` is required for tests that compile and run the fixture solution (`verify`). Those tests skip themselves if `g++` is missing.
 
 ```bash
 sudo pacman -S rust gcc   # if not installed yet
@@ -102,6 +101,5 @@ cargo test check_fixture
 taskzip check tests/fixtures/addtwo
 taskzip tests generate tests/fixtures/addtwo --out /tmp/gen
 taskzip tests answers tests/fixtures/addtwo --in /tmp/gen
-taskzip run-solutions tests/fixtures/addtwo
 taskzip verify tests/fixtures/addtwo
 ```

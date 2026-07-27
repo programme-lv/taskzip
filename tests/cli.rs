@@ -276,23 +276,6 @@ fn copy_dir(src: &str, dst: &std::path::Path) {
 }
 
 #[test]
-fn run_solutions_fixture() {
-    if std::process::Command::new("g++")
-        .arg("--version")
-        .status()
-        .is_err()
-    {
-        return;
-    }
-    bin()
-        .arg("run-solutions")
-        .arg("tests/fixtures/addtwo")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("add.cpp: 2/2"));
-}
-
-#[test]
 fn verify_fixture() {
     if std::process::Command::new("g++")
         .arg("--version")
@@ -306,5 +289,5 @@ fn verify_fixture() {
         .arg("tests/fixtures/addtwo")
         .assert()
         .success()
-        .stdout(predicate::str::contains("add.cpp: 2/2"));
+        .stdout("ok: addtwo (solutions: 1)\n");
 }

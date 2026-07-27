@@ -5,7 +5,7 @@ use crate::score::{self, TestVerdict};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -23,7 +23,7 @@ pub struct AnswerReport {
     pub written: u32,
 }
 
-pub fn validate_tests(pkg: &Package) -> Result<()> {
+pub fn validate_tests(pkg: &Package, quiet: bool) -> Result<()> {
     let validator = pkg.root.join("testspec/validator.cpp");
     if !validator.is_file() {
         return Ok(());
@@ -32,8 +32,12 @@ pub fn validate_tests(pkg: &Package) -> Result<()> {
     let bin = compile_cpp(&validator, &work.path().join("validator"), &[], true)?;
     for id in test_indices(pkg)? {
         let input = pkg.root.join(format!("tests/{id:03}i.txt"));
-        let status = Command::new(&bin)
-            .stdin(fs::File::open(&input)?)
+        let mut cmd = Command::new(&bin);
+        cmd.stdin(fs::File::open(&input)?);
+        if quiet {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+        let status = cmd
             .status()
             .with_context(|| format!("run validator on {id:03}"))?;
         if !status.success() {
@@ -269,6 +273,8 @@ fn run_checker(
         .arg(input)
         .arg(output)
         .arg(answer)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .context("run checker")?;
     Ok(status.success())

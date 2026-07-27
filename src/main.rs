@@ -71,11 +71,6 @@ enum Command {
         #[arg(long, help = "Comma-separated task authors; empty allowed")]
         authors: Option<String>,
     },
-    #[command(about = "Compile registered C++ solutions, run official tests, and print scores")]
-    RunSolutions {
-        #[arg(default_value = ".")]
-        package: PathBuf,
-    },
     #[command(about = "Run check, validator, solutions, and compare expected solution scores")]
     Verify {
         #[arg(default_value = ".")]
@@ -127,7 +122,6 @@ fn main() -> Result<()> {
     match cli.cmd {
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
-        Command::RunSolutions { package } => run_solutions(package),
         Command::Verify { package } => run_verify(package),
         Command::Import {
             format,
@@ -194,7 +188,7 @@ fn run_generate(
 fn run_validate(package: PathBuf) -> Result<()> {
     let pkg = package::open(&package)?;
     check::check(&pkg)?;
-    exec::validate_tests(&pkg)?;
+    exec::validate_tests(&pkg, false)?;
     println!("ok: validator passed");
     Ok(())
 }
@@ -223,28 +217,18 @@ fn run_answers(
     Ok(())
 }
 
-fn run_solutions(package: PathBuf) -> Result<()> {
-    let pkg = package::open(&package)?;
-    check::check(&pkg)?;
-    let rows = exec::run_solutions(&pkg)?;
-    for r in rows {
-        println!("{}: {}/{}", r.fname, r.score, r.total);
-    }
-    Ok(())
-}
-
 fn run_verify(package: PathBuf) -> Result<()> {
     let pkg = package::open(&package)?;
     let warns = check::check(&pkg)?;
     for w in warns {
         eprintln!("warn: {w}");
     }
-    exec::validate_tests(&pkg)?;
+    exec::validate_tests(&pkg, true)?;
     let rows = exec::run_solutions(&pkg)?;
     for r in &rows {
         check_expected_score(r)?;
-        println!("{}: {}/{}", r.fname, r.score, r.total);
     }
+    println!("ok: {} (solutions: {})", pkg.id, rows.len());
     Ok(())
 }
 

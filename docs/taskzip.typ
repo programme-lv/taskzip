@@ -875,7 +875,6 @@ taskzip tests generate <package>
 taskzip tests answers <package>
 taskzip tests validate <package>
 taskzip import lio2024 <src> <dest>
-taskzip run-solutions <package>
 taskzip verify <package>
 ```
 
@@ -908,15 +907,11 @@ package.
 The destination path MUST be an existing parent directory, `<dest>/<id>` MUST
 not exist, and implementations SHOULD write the package under `<dest>/<id>`.
 
-`taskzip run-solutions` SHOULD compile registered files under `solutions/`,
-run them against the official tests, apply `checker.cpp` when required by
-`testing.type`, apply `interactor.cpp` for interactive tasks
-(@sec:interactor), and compute the received score.
-
 `taskzip verify` SHOULD be the combined local audit:
 it SHOULD run conformance checks, validate tests when a validator is present,
-run registered solutions, and compare each received score with the expected
-`score` field in `task.toml` when that field is present.
+run registered solutions against the official tests, apply `checker.cpp` or
+`interactor.cpp` when required, and compare each received score with the
+expected `score` field in `task.toml` when that field is present.
 
 == AI-assisted workflows
 
