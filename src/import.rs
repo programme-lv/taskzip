@@ -301,7 +301,7 @@ impl LioTask {
     ) -> Result<()> {
         stage(on_progress, 0, "write judging");
         self.write_judging(src, dest)?;
-        detail(on_progress, 1, file_list(&self.judging_files(src)));
+        detail(on_progress, 1, file_list(&self.judging_files()));
         stage(on_progress, 0, "write solutions");
         self.write_solutions(src, dest)?;
         detail(on_progress, 1, file_list(&self.solution_files()));
@@ -640,15 +640,10 @@ impl LioTask {
             fs::create_dir_all(&testspec)?;
             fs::copy(src.join(path), testspec.join("validator.cpp"))?;
         }
-        let testlib = src.join("riki/testlib.h");
-        if testlib.is_file() {
-            fs::create_dir_all(dest.join("testspec"))?;
-            fs::copy(testlib, dest.join("testspec/testlib.h"))?;
-        }
         Ok(())
     }
 
-    fn judging_files(&self, src: &Path) -> Vec<String> {
+    fn judging_files(&self) -> Vec<String> {
         let mut files = Vec::new();
         if self.checker.is_some() {
             files.push("checker.cpp".into());
@@ -658,9 +653,6 @@ impl LioTask {
         }
         if self.validator.is_some() {
             files.push("testspec/validator.cpp".into());
-        }
-        if src.join("riki/testlib.h").is_file() {
-            files.push("testspec/testlib.h".into());
         }
         files
     }

@@ -27,7 +27,7 @@ pub fn validate_tests(pkg: &Package) -> Result<()> {
         return Ok(());
     }
     let work = TempDir::new()?;
-    let bin = compile_cpp(&validator, &work.path().join("validator"), &[])?;
+    let bin = compile_cpp(&validator, &work.path().join("validator"), &[], true)?;
     for id in test_indices(pkg)? {
         let input = pkg.root.join(format!("tests/{id:03}i.txt"));
         let status = Command::new(&bin)
@@ -54,7 +54,12 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
     let mut out = Vec::new();
     for sol in &pkg.meta.solutions {
         let src = pkg.root.join("solutions").join(&sol.fname);
-        let bin = compile_cpp(&src, &work.path().join(&sol.fname), &attached_sources(pkg)?)?;
+        let bin = compile_cpp(
+            &src,
+            &work.path().join(&sol.fname),
+            &attached_sources(pkg)?,
+            false,
+        )?;
         let verdicts = run_on_tests(pkg, &bin, &judge, &tests, limits)?;
         let score = score::total_score_pkg(pkg, &verdicts)?;
         out.push(SolutionRun {
@@ -80,7 +85,12 @@ pub fn generate_answers(
     let fname = model_solution(pkg, solution)?;
     let work = TempDir::new()?;
     let src = pkg.root.join("solutions").join(&fname);
-    let bin = compile_cpp(&src, &work.path().join(&fname), &attached_sources(pkg)?)?;
+    let bin = compile_cpp(
+        &src,
+        &work.path().join(&fname),
+        &attached_sources(pkg)?,
+        false,
+    )?;
     fs::create_dir_all(out_dir)?;
     let limits = solution_limits(pkg);
     let mut written = 0;
@@ -157,6 +167,7 @@ fn build_judge(pkg: &Package, work: &TempDir) -> Result<Judge> {
             &pkg.root.join("checker.cpp"),
             &work.path().join("checker"),
             &[],
+            true,
         )?)
     } else {
         None
@@ -166,6 +177,7 @@ fn build_judge(pkg: &Package, work: &TempDir) -> Result<Judge> {
             &pkg.root.join("interactor.cpp"),
             &work.path().join("interactor"),
             &[],
+            true,
         )?)
     } else {
         None
@@ -295,9 +307,17 @@ fn normalize(bytes: &[u8]) -> Vec<u8> {
     s
 }
 
-pub(crate) fn compile_cpp(src: &Path, out: &Path, extra: &[PathBuf]) -> Result<PathBuf> {
+pub(crate) fn compile_cpp(
+    src: &Path,
+    out: &Path,
+    extra: &[PathBuf],
+    include_testlib: bool,
+) -> Result<PathBuf> {
     let mut cmd = Command::new("g++");
     cmd.arg("-O2").arg("-std=c++17").arg(src);
+    if include_testlib {
+        cmd.arg("-I").arg(testlib_include());
+    }
     for e in extra {
         cmd.arg(e);
     }
@@ -309,4 +329,15 @@ pub(crate) fn compile_cpp(src: &Path, out: &Path, extra: &[PathBuf]) -> Result<P
         bail!("compile {}", src.display());
     }
     Ok(out.to_path_buf())
+}
+
+fn testlib_include() -> PathBuf {
+    if cfg!(windows) {
+        let root = std::env::var_os("PROGRAMDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        root.join("taskzip/include")
+    } else {
+        PathBuf::from("/usr/share/taskzip/include")
+    }
 }

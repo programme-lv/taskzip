@@ -1088,7 +1088,10 @@ group covers a consecutive test range, as required by @sec:scoring.
 = Testlib overview <app:testlib>
 
 TaskZip assumes C++ helper programs are commonly written with `testlib.h`,
-but does not require a particular bundled copy of the header.
+but does not bundle the header with a task.
+A file named `testlib.h` MUST NOT appear outside `archive/`.
+Tooling compiling package helper programs SHOULD provide testlib through an
+implementation-defined include path.
 For a longer practical guide, see the companion document `testlib.typ`.
 
 `testlib.h` is a single-header C++ library used in programming-contest task

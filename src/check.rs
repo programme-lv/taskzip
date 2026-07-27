@@ -27,6 +27,7 @@ const TOPICS: &[&str] = &[
 pub fn preflight_generate(pkg: &Package) -> Result<()> {
     check_id(&pkg.meta)?;
     check_name(&pkg.meta)?;
+    check_testlib(pkg)?;
     check_testspec_manifest(pkg)?;
     if !pkg.root.join("testspec/tests.txt").is_file() {
         bail!("testspec/tests.txt missing");
@@ -41,6 +42,7 @@ pub fn check(pkg: &Package) -> Result<Vec<String>> {
     let mut warns = Vec::new();
     check_id(&pkg.meta)?;
     check_name(&pkg.meta)?;
+    check_testlib(pkg)?;
     check_testing(pkg)?;
     let tests = test_indices(pkg)?;
     check_scoring(pkg, &tests)?;
@@ -375,6 +377,17 @@ fn check_dangling(pkg: &Package) -> Result<()> {
         if !known.contains(path) && !is_allowed_extra(path) {
             bail!("unrecognized path {path}");
         }
+    }
+    Ok(())
+}
+
+fn check_testlib(pkg: &Package) -> Result<()> {
+    if pkg
+        .files
+        .iter()
+        .any(|p| !p.starts_with("archive/") && p.rsplit('/').next() == Some("testlib.h"))
+    {
+        bail!("testlib.h outside archive/");
     }
     Ok(())
 }

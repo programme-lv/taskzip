@@ -165,7 +165,7 @@ fn produce_input(
         "g" => {
             if gen_bin.is_none() {
                 let gen_path = pkg.root.join("testspec/generator.cpp");
-                *gen_bin = Some(compile_cpp(&gen_path, &work.path().join("gen"), &[])?);
+                *gen_bin = Some(compile_cpp(&gen_path, &work.path().join("gen"), &[], true)?);
             }
             let args: Vec<_> = parts.collect();
             let output = run_generator(gen_bin.as_ref().unwrap(), &args, timeout)?;

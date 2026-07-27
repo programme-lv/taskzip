@@ -128,6 +128,7 @@ fn import_lio2024_fixture() {
     fs::create_dir_all(src.join("testi")).unwrap();
     fs::create_dir_all(src.join("teksts")).unwrap();
     fs::create_dir_all(src.join("risin")).unwrap();
+    fs::create_dir_all(src.join("riki")).unwrap();
     fs::write(
         src.join("task.yaml"),
         "name: 'tiny'\ntitle: 'Tiny Task'\ntime_limit: 0.5\nmemory_limit: 256\ntests_archive: './testi/tests.zip'\nsubtask_points: [0, 100]\ntests_groups:\n  - groups: 0\n    points: 0\n    public: true\n    subtask: 0\n  - groups: 1\n    points: 100\n    public: true\n    subtask: 1\n",
@@ -135,6 +136,7 @@ fn import_lio2024_fixture() {
     .unwrap();
     fs::write(src.join("teksts/tiny.typ"), "Story\n").unwrap();
     fs::write(src.join("risin/ok.cpp"), "int main(){}\n").unwrap();
+    fs::write(src.join("riki/testlib.h"), "// testlib\n").unwrap();
     write_lio_zip(&src.join("testi/tests.zip"));
     bin()
         .arg("import")
@@ -186,6 +188,12 @@ fn import_lio2024_fixture() {
     assert!(task_toml.contains("year = 2026"));
     assert!(task_toml.contains("stage = \"school\""));
     assert!(task_toml.contains("authors = [\"A. Author\", \"B. Author\"]"));
+    assert_eq!(
+        fs::read_to_string(dest.join("archive/original/riki/testlib.h")).unwrap(),
+        "// testlib\n"
+    );
+    assert!(!dest.join("testlib.h").exists());
+    assert!(!dest.join("testspec/testlib.h").exists());
     let readme = fs::read_to_string(dest.join("readme.md")).unwrap();
     assert!(readme.contains("port statement"));
     assert!(readme.contains("replace placeholder subtask descriptions"));
