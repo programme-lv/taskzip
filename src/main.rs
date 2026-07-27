@@ -3,6 +3,7 @@ use taskzip::exec;
 use taskzip::generate;
 use taskzip::import;
 use taskzip::package;
+use taskzip::progress;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -244,7 +245,9 @@ fn run_import(
     skip_statement_import: bool,
 ) -> Result<()> {
     let dest = match format {
-        ExternalFormat::Lio2024 => import::lio2024(&src, &dest, skip_statement_import)?,
+        ExternalFormat::Lio2024 => {
+            import::lio2024(&src, &dest, skip_statement_import, progress::print)?
+        }
     };
     println!("ok: imported {} to {}", format, dest.display());
     Ok(())

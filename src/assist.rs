@@ -1,7 +1,9 @@
 use anyhow::{bail, Context, Result};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use std::ops::AddAssign;
 use std::time::Duration;
+use std::time::Instant;
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL: &str = "gpt-5.6-luna";
@@ -15,16 +17,69 @@ pub struct StatementParts {
     pub story: String,
     pub input: String,
     pub output: String,
+    pub usage: TokenUsage,
 }
 
-pub fn import_statement(typ_source: &str, images: &[String]) -> Result<StatementParts> {
+#[derive(Clone, Copy, Default)]
+pub struct TokenUsage {
+    pub input: u64,
+    pub output: u64,
+}
+
+impl AddAssign for TokenUsage {
+    fn add_assign(&mut self, rhs: Self) {
+        self.input += rhs.input;
+        self.output += rhs.output;
+    }
+}
+
+pub enum StatementEvent {
+    Model(String),
+    Start(&'static str),
+    Done {
+        part: &'static str,
+        usage: TokenUsage,
+        elapsed: Duration,
+    },
+}
+
+pub fn import_statement(
+    typ_source: &str,
+    images: &[String],
+    mut on_progress: impl FnMut(StatementEvent),
+) -> Result<StatementParts> {
     let system = render_system(typ_source, images)?;
     let mut chat = Chat::new(system)?;
+    on_progress(StatementEvent::Model(chat.model.clone()));
+    let (story, story_usage) = ask_part(&mut chat, "story", STORY, &mut on_progress)?;
+    let (input, input_usage) = ask_part(&mut chat, "input", INPUT, &mut on_progress)?;
+    let (output, output_usage) = ask_part(&mut chat, "output", OUTPUT, &mut on_progress)?;
+    let mut usage = story_usage;
+    usage += input_usage;
+    usage += output_usage;
     Ok(StatementParts {
-        story: chat.ask(STORY)?,
-        input: chat.ask(INPUT)?,
-        output: chat.ask(OUTPUT)?,
+        story,
+        input,
+        output,
+        usage,
     })
+}
+
+fn ask_part(
+    chat: &mut Chat,
+    part: &'static str,
+    prompt: &str,
+    on_progress: &mut impl FnMut(StatementEvent),
+) -> Result<(String, TokenUsage)> {
+    on_progress(StatementEvent::Start(part));
+    let start = Instant::now();
+    let (content, usage) = chat.ask(prompt)?;
+    on_progress(StatementEvent::Done {
+        part,
+        usage,
+        elapsed: start.elapsed(),
+    });
+    Ok((content, usage))
 }
 
 struct Chat {
@@ -54,7 +109,7 @@ impl Chat {
         })
     }
 
-    fn ask(&mut self, prompt: &str) -> Result<String> {
+    fn ask(&mut self, prompt: &str) -> Result<(String, TokenUsage)> {
         self.messages.push(Message::new("user", prompt.trim()));
         let request = ChatRequest {
             model: &self.model,
@@ -67,9 +122,9 @@ impl Chat {
             .json(&request)
             .send()
             .context("OpenAI request")?;
-        let content = parse_response(response)?;
+        let (content, usage) = parse_response(response)?;
         self.messages.push(Message::new("assistant", &content));
-        Ok(content)
+        Ok((content, usage))
     }
 }
 
@@ -97,6 +152,13 @@ struct ChatRequest<'a> {
 #[derive(Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    usage: ApiUsage,
+}
+
+#[derive(Deserialize)]
+struct ApiUsage {
+    prompt_tokens: u64,
+    completion_tokens: u64,
 }
 
 #[derive(Deserialize)]
@@ -119,7 +181,7 @@ struct ApiError {
     message: String,
 }
 
-fn parse_response(response: reqwest::blocking::Response) -> Result<String> {
+fn parse_response(response: reqwest::blocking::Response) -> Result<(String, TokenUsage)> {
     let status = response.status();
     let body = response.text().context("read OpenAI response")?;
     if !status.is_success() {
@@ -138,7 +200,11 @@ fn parse_response(response: reqwest::blocking::Response) -> Result<String> {
     if content.is_empty() {
         bail!("empty OpenAI response");
     }
-    Ok(content)
+    let usage = TokenUsage {
+        input: response.usage.prompt_tokens,
+        output: response.usage.completion_tokens,
+    };
+    Ok((content, usage))
 }
 
 fn render_system(typ_source: &str, images: &[String]) -> Result<String> {

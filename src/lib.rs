@@ -5,5 +5,6 @@ pub mod generate;
 pub mod import;
 pub mod meta;
 pub mod package;
+pub mod progress;
 pub mod run;
 pub mod score;

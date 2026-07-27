@@ -1,32 +1,110 @@
 use crate::assist;
+use crate::progress::{self, Event};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::time::Instant;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
-pub fn lio2024(src: &Path, dest: &Path, skip_statement_import: bool) -> Result<PathBuf> {
+pub fn lio2024(
+    src: &Path,
+    dest: &Path,
+    skip_statement_import: bool,
+    mut on_progress: impl FnMut(Event),
+) -> Result<PathBuf> {
+    let start = Instant::now();
     if !dest.is_dir() {
         bail!("dest is not a directory: {}", dest.display());
     }
-    let source = LioSource::open(src)?;
-    let task = LioTask::read(&source.root)?;
+    let source = open_source(src, &mut on_progress)?;
+    let task = read_task(&source.root, &mut on_progress)?;
     let dest = dest.join(&task.id);
     if dest.exists() {
         bail!("dest already exists: {}", dest.display());
     }
     fs::create_dir_all(&dest)?;
-    if let Err(err) = task.write(&source.root, &dest, skip_statement_import) {
-        if let Err(cleanup) = fs::remove_dir_all(&dest) {
+    write_task(
+        &task,
+        &source.root,
+        &dest,
+        skip_statement_import,
+        &mut on_progress,
+    )?;
+    report_result(&dest, start, &mut on_progress)?;
+    Ok(dest)
+}
+
+fn open_source(src: &Path, on_progress: &mut impl FnMut(Event)) -> Result<LioSource> {
+    stage(on_progress, 0, "open source");
+    let source = LioSource::open(src)?;
+    let stats = dir_stats(&source.root)?;
+    let kind = if src.is_dir() { "" } else { ", extracted ZIP" };
+    detail(
+        on_progress,
+        1,
+        format!(
+            "{} files, {}{kind}",
+            stats.files,
+            progress::bytes(stats.bytes)
+        ),
+    );
+    Ok(source)
+}
+
+fn read_task(src: &Path, on_progress: &mut impl FnMut(Event)) -> Result<LioTask> {
+    stage(on_progress, 0, "read task");
+    let task = LioTask::read(src)?;
+    detail(on_progress, 1, task.summary());
+    Ok(task)
+}
+
+fn write_task(
+    task: &LioTask,
+    src: &Path,
+    dest: &Path,
+    skip_statement_import: bool,
+    on_progress: &mut impl FnMut(Event),
+) -> Result<()> {
+    if let Err(err) = task.write(src, dest, skip_statement_import, on_progress) {
+        if let Err(cleanup) = fs::remove_dir_all(dest) {
             return Err(err.context(format!("cleanup {}: {cleanup}", dest.display())));
         }
+        detail(
+            on_progress,
+            0,
+            format!("cleanup: removed {}", dest.display()),
+        );
         return Err(err);
     }
-    Ok(dest)
+    Ok(())
+}
+
+fn report_result(dest: &Path, start: Instant, on_progress: &mut impl FnMut(Event)) -> Result<()> {
+    let result = dir_stats(&dest)?;
+    detail(
+        on_progress,
+        0,
+        format!(
+            "result: {} files, {}, {}",
+            result.files,
+            progress::bytes(result.bytes),
+            progress::duration(start.elapsed())
+        ),
+    );
+    Ok(())
+}
+
+fn stage(on_progress: &mut impl FnMut(Event), depth: usize, message: impl Into<String>) {
+    on_progress(Event::step(depth, message));
+}
+
+fn detail(on_progress: &mut impl FnMut(Event), depth: usize, message: impl Into<String>) {
+    on_progress(Event::detail(depth, message));
 }
 
 struct LioSource {
@@ -154,14 +232,78 @@ impl LioTask {
         })
     }
 
-    fn write(&self, src: &Path, dest: &Path, skip_statement_import: bool) -> Result<()> {
+    fn write(
+        &self,
+        src: &Path,
+        dest: &Path,
+        skip_statement_import: bool,
+        on_progress: &mut impl FnMut(Event),
+    ) -> Result<()> {
+        self.write_package(src, dest, skip_statement_import, on_progress)?;
+        self.write_code(src, dest, on_progress)?;
+        stage(on_progress, 0, "write archive");
+        self.write_archive(src, dest)?;
+        let archive = dir_stats(&dest.join("archive/original"))?;
+        detail(
+            on_progress,
+            1,
+            format!("archive/original/ ({} files)", archive.files),
+        );
+        report_todos(on_progress, !skip_statement_import);
+        Ok(())
+    }
+
+    fn write_package(
+        &self,
+        src: &Path,
+        dest: &Path,
+        skip_statement_import: bool,
+        on_progress: &mut impl FnMut(Event),
+    ) -> Result<()> {
+        stage(on_progress, 0, "write meta");
         self.write_meta(dest)?;
+        detail(on_progress, 1, "task.toml");
+        stage(on_progress, 0, "write tests");
         self.write_tests(dest)?;
-        self.write_statement(src, dest, skip_statement_import)?;
+        detail(on_progress, 1, self.tests_summary());
+        self.write_statement(src, dest, skip_statement_import, on_progress)?;
+        stage(on_progress, 0, "write readme");
         self.write_readme(dest, !skip_statement_import)?;
+        detail(on_progress, 1, "readme.md");
+        Ok(())
+    }
+
+    fn write_code(
+        &self,
+        src: &Path,
+        dest: &Path,
+        on_progress: &mut impl FnMut(Event),
+    ) -> Result<()> {
+        stage(on_progress, 0, "write judging");
         self.write_judging(src, dest)?;
+        detail(on_progress, 1, file_list(&self.judging_files(src)));
+        stage(on_progress, 0, "write solutions");
         self.write_solutions(src, dest)?;
-        self.write_archive(src, dest)
+        detail(on_progress, 1, file_list(&self.solution_files()));
+        Ok(())
+    }
+
+    fn summary(&self) -> String {
+        let official = self.tests.iter().filter(|t| t.group != 0).count();
+        let examples = self.tests.len() - official;
+        let groups = self.groups.iter().filter(|g| g.id != 0).count();
+        format!(
+            "{official} tests, {examples} examples, {groups} groups, {} subtasks, {} solutions, {}",
+            self.subtask_count(),
+            self.solutions.len(),
+            self.testing_kind
+        )
+    }
+
+    fn tests_summary(&self) -> String {
+        let official = self.tests.iter().filter(|t| t.group != 0).count();
+        let examples = self.tests.len() - official;
+        format!("tests/ ({official} pairs), examples/ ({examples} pairs), tgroups.txt")
     }
 
     fn write_meta(&self, dest: &Path) -> Result<()> {
@@ -228,14 +370,9 @@ impl LioTask {
 
     fn write_readme(&self, dest: &Path, statement_imported: bool) -> Result<()> {
         let mut text = String::from("## TODO\n\n");
-        if !statement_imported {
-            text.push_str(
-                "- [ ] port statement from `archive/original/teksts/` to `statement/lv.md`\n",
-            );
+        for item in todo_items(statement_imported) {
+            text.push_str(&format!("- [ ] {item}\n"));
         }
-        text.push_str("- [ ] fill `origin.year`, `origin.stage`, and authors\n");
-        text.push_str("- [ ] replace placeholder subtask descriptions\n");
-        text.push_str("- [ ] review imported solution scores\n");
         fs::write(dest.join("readme.md"), text)?;
         Ok(())
     }
@@ -295,7 +432,22 @@ impl LioTask {
         Ok(format!("{:02}-{:02}", ids[0], ids[ids.len() - 1]))
     }
 
-    fn write_statement(&self, src: &Path, dest: &Path, skip: bool) -> Result<()> {
+    fn write_statement(
+        &self,
+        src: &Path,
+        dest: &Path,
+        skip: bool,
+        on_progress: &mut impl FnMut(Event),
+    ) -> Result<()> {
+        stage(
+            on_progress,
+            0,
+            if skip {
+                "write statement (skip)"
+            } else {
+                "import statement"
+            },
+        );
         if !skip && self.testing_kind == "interactor" {
             bail!("interactive statement import unsupported");
         }
@@ -303,6 +455,19 @@ impl LioTask {
         fs::create_dir_all(&statement)?;
         let images = self.copy_statement_assets(src, dest, &statement)?;
         let path = statement.join("lv.md");
+        self.write_statement_text(src, &path, &images, skip, on_progress)?;
+        detail(on_progress, 1, file_list(&statement_files(dest, &images)));
+        Ok(())
+    }
+
+    fn write_statement_text(
+        &self,
+        src: &Path,
+        path: &Path,
+        images: &[String],
+        skip: bool,
+        on_progress: &mut impl FnMut(Event),
+    ) -> Result<()> {
         if skip {
             fs::write(
                 path,
@@ -311,8 +476,19 @@ impl LioTask {
             return Ok(());
         }
         let source = read_typ_source(src)?;
-        let parts = assist::import_statement(&source, &images)?;
+        let parts = assist::import_statement(&source, &images, |event| {
+            report_statement_event(on_progress, event)
+        })?;
+        let usage = parts.usage;
         fs::write(path, statement_markdown(parts))?;
+        detail(
+            on_progress,
+            1,
+            format!(
+                "AI total: {} input, {} output tokens",
+                usage.input, usage.output
+            ),
+        );
         Ok(())
     }
 
@@ -365,6 +541,23 @@ impl LioTask {
         Ok(())
     }
 
+    fn judging_files(&self, src: &Path) -> Vec<String> {
+        let mut files = Vec::new();
+        if self.checker.is_some() {
+            files.push("checker.cpp".into());
+        }
+        if self.interactor.is_some() {
+            files.push("interactor.cpp".into());
+        }
+        if self.validator.is_some() {
+            files.push("testspec/validator.cpp".into());
+        }
+        if src.join("riki/testlib.h").is_file() {
+            files.push("testspec/testlib.h".into());
+        }
+        files
+    }
+
     fn write_solutions(&self, src: &Path, dest: &Path) -> Result<()> {
         if self.solutions.is_empty() {
             return Ok(());
@@ -377,6 +570,13 @@ impl LioTask {
             )?;
         }
         Ok(())
+    }
+
+    fn solution_files(&self) -> Vec<String> {
+        self.solutions
+            .iter()
+            .map(|name| format!("solutions/{name}"))
+            .collect()
     }
 
     fn write_archive(&self, src: &Path, dest: &Path) -> Result<()> {
@@ -409,6 +609,75 @@ impl LioTask {
     fn has_visible_input(&self) -> bool {
         self.visible_input
     }
+}
+
+fn report_statement_event(on_progress: &mut impl FnMut(Event), event: assist::StatementEvent) {
+    match event {
+        assist::StatementEvent::Model(model) => {
+            detail(on_progress, 1, format!("model {model}"));
+        }
+        assist::StatementEvent::Start(part) => stage(on_progress, 1, part),
+        assist::StatementEvent::Done { usage, elapsed, .. } => detail(
+            on_progress,
+            2,
+            format!(
+                "{} input, {} output tokens, {}",
+                usage.input,
+                usage.output,
+                progress::duration(elapsed)
+            ),
+        ),
+    }
+}
+
+fn statement_files(dest: &Path, images: &[String]) -> Vec<String> {
+    let mut files = vec!["statement/lv.md".into()];
+    files.extend(images.iter().map(|name| format!("statement/{name}")));
+    if dest.join("archive/statement-pdf/lv.pdf").is_file() {
+        files.push("archive/statement-pdf/lv.pdf".into());
+    }
+    files
+}
+
+fn file_list(files: &[String]) -> String {
+    if files.is_empty() {
+        "no files".into()
+    } else {
+        files.join(", ")
+    }
+}
+
+fn todo_items(statement_imported: bool) -> Vec<&'static str> {
+    let mut items = Vec::new();
+    if !statement_imported {
+        items.push("port statement from `archive/original/teksts/` to `statement/lv.md`");
+    }
+    items.push("fill `origin.year`, `origin.stage`, and authors");
+    items.push("replace placeholder subtask descriptions");
+    items.push("review imported solution scores");
+    items
+}
+
+fn report_todos(on_progress: &mut impl FnMut(Event), statement_imported: bool) {
+    stage(on_progress, 0, "remaining TODOs");
+    for item in todo_items(statement_imported) {
+        detail(on_progress, 1, format!("- {item}"));
+    }
+}
+
+#[derive(Default)]
+struct DirStats {
+    files: usize,
+    bytes: u64,
+}
+
+fn dir_stats(root: &Path) -> Result<DirStats> {
+    let mut stats = DirStats::default();
+    for path in files_under(root)? {
+        stats.files += 1;
+        stats.bytes += fs::metadata(path)?.len();
+    }
+    Ok(stats)
 }
 
 fn read_typ_source(src: &Path) -> Result<String> {
