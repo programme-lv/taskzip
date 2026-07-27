@@ -9,6 +9,8 @@ use std::process::Command;
 use std::time::Duration;
 use tempfile::TempDir;
 
+const TESTLIB_H: &[u8] = include_bytes!("../assets/testlib.h");
+
 pub struct SolutionRun {
     pub fname: String,
     pub score: u32,
@@ -316,7 +318,7 @@ pub(crate) fn compile_cpp(
     let mut cmd = Command::new("g++");
     cmd.arg("-O2").arg("-std=c++17").arg(src);
     if include_testlib {
-        cmd.arg("-I").arg(testlib_include());
+        cmd.arg("-I").arg(write_testlib(out)?);
     }
     for e in extra {
         cmd.arg(e);
@@ -331,13 +333,9 @@ pub(crate) fn compile_cpp(
     Ok(out.to_path_buf())
 }
 
-fn testlib_include() -> PathBuf {
-    if cfg!(windows) {
-        let root = std::env::var_os("PROGRAMDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        root.join("taskzip/include")
-    } else {
-        PathBuf::from("/usr/share/taskzip/include")
-    }
+fn write_testlib(out: &Path) -> Result<PathBuf> {
+    let include = out.parent().unwrap().join("include");
+    fs::create_dir_all(&include)?;
+    fs::write(include.join("testlib.h"), TESTLIB_H)?;
+    Ok(include)
 }

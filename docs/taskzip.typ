@@ -1092,6 +1092,8 @@ but does not bundle the header with a task.
 A file named `testlib.h` MUST NOT appear outside `archive/`.
 Tooling compiling package helper programs SHOULD provide testlib through an
 implementation-defined include path.
+The `taskzip` CLI embeds a canonical copy and writes it to its temporary build
+directory.
 For a longer practical guide, see the companion document `testlib.typ`.
 
 `testlib.h` is a single-header C++ library used in programming-contest task

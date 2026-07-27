@@ -18,9 +18,6 @@ cd taskzip
 cargo install --path .
 ```
 
-Install the canonical `testlib.h` at `/usr/share/taskzip/include/testlib.h`.
-On Windows, place it under `%PROGRAMDATA%\taskzip\include\testlib.h`.
-
 Ensure `~/.cargo/bin` is on your `PATH`, then run:
 
 ```bash
