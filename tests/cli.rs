@@ -69,6 +69,16 @@ fn archive_roundtrip_is_flat() {
 }
 
 #[test]
+fn generates_fish_completions() {
+    bin()
+        .args(["completions", "fish"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("complete -c taskzip"))
+        .stdout(predicate::str::contains("archive"));
+}
+
+#[test]
 fn parse_range_helper() {
     let ids = taskzip::check::parse_range("003-005").unwrap();
     assert_eq!(ids, vec![3, 4, 5]);

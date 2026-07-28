@@ -9,7 +9,8 @@ use taskzip::progress;
 
 use anyhow::{bail, Context, Result};
 use chrono::{Datelike, Local};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use dialoguer::{Input, Select};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -53,6 +54,11 @@ enum Command {
         input: PathBuf,
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    #[command(about = "Generate shell completion scripts")]
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
     },
     #[command(about = "Validate package structure and metadata without running task code")]
     Check {
@@ -129,6 +135,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Command::Archive { input, out } => run_archive(input, out),
+        Command::Completions { shell } => run_completions(shell),
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
         Command::Verify { package } => run_verify(package),
@@ -142,6 +149,12 @@ fn main() -> Result<()> {
             authors,
         } => run_import(format, src, dest, skip_ai_import, year, stage, authors),
     }
+}
+
+fn run_completions(shell: Shell) -> Result<()> {
+    let mut command = Cli::command();
+    clap_complete::generate(shell, &mut command, "taskzip", &mut std::io::stdout());
+    Ok(())
 }
 
 fn run_archive(input: PathBuf, out: Option<PathBuf>) -> Result<()> {
