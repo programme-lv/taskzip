@@ -8,40 +8,38 @@ use zip::read::ZipArchive;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-pub enum Action {
-    Packed,
-    Unpacked,
+pub fn run(input: &Path) -> Result<PathBuf> {
+    let metadata =
+        fs::symlink_metadata(input).with_context(|| format!("inspect {}", input.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!("input is a symlink: {}", input.display());
+    }
+    if metadata.is_dir() {
+        return convert_directory(input);
+    }
+    if metadata.is_file() && is_zip(input) {
+        return convert_zip(input);
+    }
+    bail!("input must be a directory or .zip");
 }
 
-pub struct Report {
-    pub action: Action,
-    pub output: PathBuf,
+fn convert_directory(input: &Path) -> Result<PathBuf> {
+    let input = fs::canonicalize(input).with_context(|| format!("resolve {}", input.display()))?;
+    if input.file_name().is_none() {
+        bail!("input directory has no name");
+    }
+    let output = zip_output(&input);
+    pack(&input, &output)?;
+    remove_directory(&input)?;
+    Ok(output)
 }
 
-pub fn run(input: &Path, output: Option<&Path>) -> Result<Report> {
-    if input.is_dir() {
-        let input =
-            fs::canonicalize(input).with_context(|| format!("resolve {}", input.display()))?;
-        let output = output
-            .map(PathBuf::from)
-            .unwrap_or_else(|| zip_output(&input));
-        pack(&input, &output)?;
-        return Ok(Report {
-            action: Action::Packed,
-            output,
-        });
-    }
-    if !is_zip(input) {
-        bail!("input must be a directory or .zip");
-    }
-    let output = output
-        .map(PathBuf::from)
-        .unwrap_or_else(|| input.with_extension(""));
-    unpack(input, &output)?;
-    Ok(Report {
-        action: Action::Unpacked,
-        output,
-    })
+fn convert_zip(input: &Path) -> Result<PathBuf> {
+    let input = fs::canonicalize(input).with_context(|| format!("resolve {}", input.display()))?;
+    let output = input.with_extension("");
+    unpack(&input, &output)?;
+    fs::remove_file(&input).with_context(|| format!("remove {}", input.display()))?;
+    Ok(output)
 }
 
 fn pack(input: &Path, output: &Path) -> Result<()> {
@@ -114,6 +112,14 @@ fn extract_entry(zip: &mut ZipArchive<fs::File>, index: usize, root: &Path) -> R
         io::copy(&mut entry, &mut file)?;
     }
     Ok(())
+}
+
+fn remove_directory(path: &Path) -> Result<()> {
+    let current = fs::canonicalize(".").context("resolve current directory")?;
+    if current.starts_with(path) {
+        std::env::set_current_dir(parent(path)).context("leave input directory")?;
+    }
+    fs::remove_dir_all(path).with_context(|| format!("remove {}", path.display()))
 }
 
 fn ensure_absent(path: &Path) -> Result<()> {

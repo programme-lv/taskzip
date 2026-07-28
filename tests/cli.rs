@@ -40,31 +40,32 @@ fn check_fixture() {
 }
 
 #[test]
-fn archive_roundtrip_is_flat() {
+fn convert_roundtrip_is_flat() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("addtwo");
     let zip_path = dir.path().join("addtwo.zip");
     fs::create_dir(&root).unwrap();
     copy_dir("tests/fixtures/addtwo", &root);
     bin()
-        .arg("archive")
+        .arg("convert")
         .arg(&root)
         .assert()
         .success()
-        .stdout(predicate::str::contains("ok: packed"));
+        .stdout(predicate::str::contains("ok: converted"));
+    assert!(!root.exists());
 
     let file = fs::File::open(&zip_path).unwrap();
     let mut zip = zip::ZipArchive::new(file).unwrap();
     assert!(zip.by_name("task.toml").is_ok());
     assert!(zip.by_name("addtwo/task.toml").is_err());
 
-    fs::remove_dir_all(&root).unwrap();
     bin()
-        .arg("archive")
+        .arg("convert")
         .arg(&zip_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("ok: unpacked"));
+        .stdout(predicate::str::contains("ok: converted"));
+    assert!(!zip_path.exists());
     assert!(root.join("task.toml").is_file());
 }
 
@@ -75,7 +76,7 @@ fn generates_fish_completions() {
         .assert()
         .success()
         .stdout(predicate::str::contains("complete -c taskzip"))
-        .stdout(predicate::str::contains("archive"));
+        .stdout(predicate::str::contains("convert"));
 }
 
 #[test]

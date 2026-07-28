@@ -27,7 +27,7 @@ taskzip check path/to/task
 ## Commands
 
 ```text
-taskzip archive <dir-or-zip> [--out PATH]
+taskzip convert <dir-or-zip>
 taskzip completions <shell>
 taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
@@ -39,7 +39,7 @@ taskzip verify <package>
 
 `<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
 
-`archive` packs a directory into a flat `.zip`, without a task-ID directory at the archive root. Passing a `.zip` instead extracts it to a directory with the `.zip` extension removed. Use `--out` to override either output path. Existing outputs are not overwritten.
+`convert` replaces a directory with a flat `.zip`, without a task-ID directory at the archive root. Passing a `.zip` instead replaces it with a directory whose name has the `.zip` extension removed. The input is removed only after the output is complete. Existing outputs are not overwritten.
 
 Install Fish completions with:
 
@@ -111,9 +111,9 @@ cargo test check_fixture
 ## Example
 
 ```bash
-taskzip archive tests/fixtures/addtwo
 taskzip check tests/fixtures/addtwo
 taskzip tests generate tests/fixtures/addtwo --out /tmp/gen
 taskzip tests answers tests/fixtures/addtwo --in /tmp/gen
 taskzip verify tests/fixtures/addtwo
+taskzip convert tests/fixtures/addtwo
 ```

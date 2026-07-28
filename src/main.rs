@@ -1,6 +1,6 @@
-use taskzip::archive;
 use taskzip::assist;
 use taskzip::check;
+use taskzip::convert;
 use taskzip::exec;
 use taskzip::generate;
 use taskzip::import;
@@ -49,12 +49,8 @@ impl std::fmt::Display for LioStage {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "Pack a directory to .zip or unpack a .zip")]
-    Archive {
-        input: PathBuf,
-        #[arg(long)]
-        out: Option<PathBuf>,
-    },
+    #[command(about = "Convert a directory to .zip or a .zip to a directory in place")]
+    Convert { input: PathBuf },
     #[command(about = "Generate shell completion scripts")]
     Completions {
         #[arg(value_enum)]
@@ -134,7 +130,7 @@ enum TestsCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Command::Archive { input, out } => run_archive(input, out),
+        Command::Convert { input } => run_convert(input),
         Command::Completions { shell } => run_completions(shell),
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
@@ -157,13 +153,9 @@ fn run_completions(shell: Shell) -> Result<()> {
     Ok(())
 }
 
-fn run_archive(input: PathBuf, out: Option<PathBuf>) -> Result<()> {
-    let report = archive::run(&input, out.as_deref())?;
-    let action = match report.action {
-        archive::Action::Packed => "packed",
-        archive::Action::Unpacked => "unpacked",
-    };
-    println!("ok: {action} to {}", report.output.display());
+fn run_convert(input: PathBuf) -> Result<()> {
+    let output = convert::run(&input)?;
+    println!("ok: converted to {}", output.display());
     Ok(())
 }
 
