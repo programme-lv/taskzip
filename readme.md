@@ -27,6 +27,7 @@ taskzip check path/to/task
 ## Commands
 
 ```text
+taskzip archive <dir-or-zip> [--out PATH]
 taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
@@ -36,6 +37,8 @@ taskzip verify <package>
 ```
 
 `<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
+
+`archive` packs a directory into a flat `.zip`, without a task-ID directory at the archive root. Passing a `.zip` instead extracts it to a directory with the `.zip` extension removed. Use `--out` to override either output path. Existing outputs are not overwritten.
 
 `tests generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead. Manifest line *N* becomes test `NNN`; blank lines and `#` comments are rejected. Cached inputs live under `$XDG_CACHE_HOME/taskzip/generate/` (or `~/.cache/taskzip/generate/`); a line is regenerated only when its cache key (generator or manual source plus manifest line) or stored checksum changes. Use `--force` to bypass the cache.
 
@@ -98,6 +101,7 @@ cargo test check_fixture
 ## Example
 
 ```bash
+taskzip archive tests/fixtures/addtwo
 taskzip check tests/fixtures/addtwo
 taskzip tests generate tests/fixtures/addtwo --out /tmp/gen
 taskzip tests answers tests/fixtures/addtwo --in /tmp/gen

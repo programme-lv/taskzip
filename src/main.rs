@@ -1,3 +1,4 @@
+use taskzip::archive;
 use taskzip::assist;
 use taskzip::check;
 use taskzip::exec;
@@ -47,6 +48,12 @@ impl std::fmt::Display for LioStage {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Pack a directory to .zip or unpack a .zip")]
+    Archive {
+        input: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     #[command(about = "Validate package structure and metadata without running task code")]
     Check {
         #[arg(default_value = ".")]
@@ -121,6 +128,7 @@ enum TestsCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
+        Command::Archive { input, out } => run_archive(input, out),
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
         Command::Verify { package } => run_verify(package),
@@ -134,6 +142,16 @@ fn main() -> Result<()> {
             authors,
         } => run_import(format, src, dest, skip_ai_import, year, stage, authors),
     }
+}
+
+fn run_archive(input: PathBuf, out: Option<PathBuf>) -> Result<()> {
+    let report = archive::run(&input, out.as_deref())?;
+    let action = match report.action {
+        archive::Action::Packed => "packed",
+        archive::Action::Unpacked => "unpacked",
+    };
+    println!("ok: {action} to {}", report.output.display());
+    Ok(())
 }
 
 fn run_check(package: PathBuf) -> Result<()> {
