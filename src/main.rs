@@ -1,3 +1,4 @@
+use taskzip::assist;
 use taskzip::check;
 use taskzip::exec;
 use taskzip::generate;
@@ -5,11 +6,11 @@ use taskzip::import;
 use taskzip::package;
 use taskzip::progress;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{Datelike, Local};
 use clap::{Parser, Subcommand, ValueEnum};
 use dialoguer::{Input, Select};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -256,6 +257,7 @@ fn run_import(
     stage: Option<LioStage>,
     authors: Option<String>,
 ) -> Result<()> {
+    check_import(&dest, skip_ai_import)?;
     let origin = lio_origin(year, stage, authors)?;
     let dest = match format {
         ExternalFormat::Lio2024 => {
@@ -263,6 +265,16 @@ fn run_import(
         }
     };
     println!("ok: imported {} to {}", format, dest.display());
+    Ok(())
+}
+
+fn check_import(dest: &Path, skip_ai_import: bool) -> Result<()> {
+    if !dest.is_dir() {
+        bail!("dest is not a directory: {}", dest.display());
+    }
+    if !skip_ai_import {
+        assist::check_openai_api_key()?;
+    }
     Ok(())
 }
 

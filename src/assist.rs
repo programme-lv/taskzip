@@ -204,6 +204,11 @@ impl Chat {
     }
 }
 
+pub fn check_openai_api_key() -> Result<()> {
+    let _ = dotenvy::dotenv();
+    env("OPENAI_API_KEY").map(drop)
+}
+
 #[derive(Clone, Serialize)]
 struct Message {
     role: String,
