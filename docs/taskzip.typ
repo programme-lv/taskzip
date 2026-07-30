@@ -584,6 +584,7 @@ It is optional, but recommended for archival packages.
 olymp = "LIO"
 year = 2024
 stage = "national"
+divisions = ["junior", "senior"]
 org = "LIO"
 authors = ["A. Author"]
 lang = "lv"
@@ -608,6 +609,49 @@ If present, `origin.stage` MUST be one of:
 `online`, `school`, `municipal`, `national`,
 `selection`, `regional`, or `international`.
 `origin.year`, if present, MUST be an integer from 1980 onward.
+`origin.divisions`, if present, identifies the original contest divisions
+for which the task was assigned.
+It MUST be an array of unique lowercase slugs; each slug MUST match
+`[a-z0-9]+(-[a-z0-9]+)*`.
+The values are the source contest's own divisions, not a TaskZip-wide
+vocabulary.
+For example, `["junior"]` marks a junior-only task,
+`["junior", "senior"]` marks a shared task, and contests may instead use
+values such as `["grade-8"]` or `["bronze"]`.
+There is no special `both` or `all` value.
+An empty array SHOULD be omitted.
+Omit the field when the division is unknown or the contest does not divide
+tasks this way.
+
+This open representation is intentional.
+National olympiads partition contestants and tasks differently:
+Lithuania uses grade groups#footnote[
+  #link("https://www.linesa.lt/uploads/informatikos%20olimpiados%20s%C4%85lygos%202025-10_30.pdf")[
+    Lithuanian Informatics Olympiad rules.
+  ]
+], Romania separates gymnasium and high-school divisions#footnote[
+  #link("https://www.edu.ro/sites/default/files/_fi%C8%99iere/Minister/2026/olimpiade_concursuri/regulamente_actualizate/Regulament_Olimpiada_Nationala_Informatica_2026.pdf")[
+    Romanian National Olympiad in Informatics rules.
+  ]
+], and Australia's Intermediate and Senior divisions take the same
+paper#footnote[
+  #link("https://aio.edu.au/rules_registration/")[
+    Australian Informatics Olympiad eligibility rules.
+  ]
+].
+Hong Kong defines Junior and Senior using both age and remaining school
+study#footnote[
+  #link("https://hkoi.org/en/hkoi-rules/")[
+    Hong Kong Olympiad in Informatics rules.
+  ]
+], while USACO uses skill divisions such as Bronze and Silver#footnote[
+  #link("https://usaco.org/index.php?page=details")[
+    USACO contest details.
+  ]
+].
+Therefore `divisions` records source provenance rather than inferring age,
+grade, difficulty, or task availability.
+
 At least one of `origin.olymp`, `origin.org`, or a non-empty
 `origin.authors` list SHOULD be present; import tooling SHOULD warn if
 none are set.

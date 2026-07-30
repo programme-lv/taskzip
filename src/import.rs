@@ -15,6 +15,7 @@ use zip::ZipArchive;
 pub struct LioOrigin {
     pub year: i32,
     pub stage: String,
+    pub divisions: Vec<String>,
     pub authors: Vec<String>,
 }
 
@@ -420,6 +421,10 @@ impl LioTask {
         out.push_str("olymp = \"LIO\"\n");
         out.push_str(&format!("year = {}\n", self.origin.year));
         out.push_str(&format!("stage = {}\n", toml_string(&self.origin.stage)));
+        out.push_str(&format!(
+            "divisions = {}\n",
+            string_array(&self.origin.divisions)
+        ));
         if !self.origin.authors.is_empty() {
             let authors = self
                 .origin

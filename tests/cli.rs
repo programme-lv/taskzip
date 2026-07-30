@@ -188,6 +188,8 @@ fn import_lio2024_fixture() {
             "2025/2026",
             "--stage",
             "school",
+            "--division",
+            "junior",
             "--authors",
             "A. Author, B. Author",
         ])
@@ -207,6 +209,8 @@ fn import_lio2024_fixture() {
             "2025/2026",
             "--stage",
             "school",
+            "--division",
+            "junior",
             "--authors",
             "A. Author, B. Author",
         ])
@@ -227,6 +231,7 @@ fn import_lio2024_fixture() {
     assert!(task_toml.contains("lv = \"1. apakšuzdevums\""));
     assert!(task_toml.contains("year = 2026"));
     assert!(task_toml.contains("stage = \"school\""));
+    assert!(task_toml.contains("divisions = [\"junior\"]"));
     assert!(task_toml.contains("authors = [\"A. Author\", \"B. Author\"]"));
     assert_eq!(
         fs::read_to_string(dest.join("archive/original/riki/testlib.h")).unwrap(),
@@ -257,7 +262,18 @@ fn import_lio2024_fixture() {
         .arg(&src_zip)
         .arg(&zip_dest)
         .arg("--skip-ai-import")
-        .args(["--year", "2026", "--stage", "national", "--authors", ""])
+        .args([
+            "--year",
+            "2026",
+            "--stage",
+            "national",
+            "--division",
+            "junior",
+            "--division",
+            "senior",
+            "--authors",
+            "",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("ok: imported lio2024"));

@@ -427,6 +427,7 @@ fn check_origin(meta: &TaskMeta, warns: &mut Vec<String>) -> Result<()> {
     if let Some(lang) = &o.lang {
         bcp47(lang)?;
     }
+    check_divisions(&o.divisions)?;
     if o.stage.is_some() && o.olymp.is_none() {
         warns.push("origin.stage without origin.olymp".into());
     }
@@ -436,6 +437,17 @@ fn check_origin(meta: &TaskMeta, warns: &mut Vec<String>) -> Result<()> {
     if let (Some(c), Some(s)) = (o.contestants, o.solvers) {
         if s > c {
             bail!("origin.solvers > origin.contestants");
+        }
+    }
+    Ok(())
+}
+
+fn check_divisions(divisions: &[String]) -> Result<()> {
+    let slug = Regex::new(r"^[a-z0-9]+(-[a-z0-9]+)*$")?;
+    let mut seen = BTreeSet::new();
+    for division in divisions {
+        if !slug.is_match(division) || !seen.insert(division) {
+            bail!("invalid origin.divisions slug {:?}", division);
         }
     }
     Ok(())

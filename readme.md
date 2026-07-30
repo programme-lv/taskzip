@@ -33,7 +33,7 @@ taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
-taskzip import lio2024 <src> <dest> [--year YEAR] [--stage STAGE] [--authors NAMES] [--skip-ai-import]
+taskzip import lio2024 <src> <dest> [--year YEAR] [--stage STAGE] [--division DIVISION]... [--authors NAMES] [--skip-ai-import]
 taskzip verify <package>
 ```
 
@@ -56,7 +56,7 @@ Fish loads the file in new sessions. Run `source ~/.config/fish/completions/task
 
 `import lio2024` converts an LIO 2024 task directory or `.zip` with `task.yaml` and `tests_archive` into a TaskZip package. `<dest>` must be an existing parent directory, and `<dest>/<id>` must not exist. A task with id `foo` is written to `<dest>/foo/task.toml`.
 
-The importer prompts for missing origin metadata. Stage choices are `school`, `municipal`, `national`, and `selection`. Year accepts `YYYY` or an academic-year form such as `2025/2026`, which is stored as `2026`; valid years run from 1986 through the current year. Use the olympiad edition year even when a school or warm-up stage took place late in the previous calendar year. Authors are optional and comma-separated. `--year`, `--stage`, and `--authors` avoid prompts in scripts.
+The importer prompts for missing origin metadata. Stage choices are `school`, `municipal`, `national`, and `selection`. Age-group choices are `junior`, `senior`, and both; repeat `--division junior|senior` to select groups in scripts. Year accepts `YYYY` or an academic-year form such as `2025/2026`, which is stored as `2026`; valid years run from 1986 through the current year. Use the olympiad edition year even when a school or warm-up stage took place late in the previous calendar year. Authors are optional and comma-separated. `--year`, `--stage`, `--division`, and `--authors` avoid prompts in scripts.
 
 By default, import sends the single `teksts/*.typ` source and available image filenames to OpenAI for story, input, output, subtask descriptions, classification metadata, and per-solution score estimates. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections, subtask restrictions, difficulty, and a small set of classification tags are written to the package. Source prose is not translated or corrected. Set `OPENAI_API_KEY` in the environment or a `.env` file. `OPENAI_MODEL` overrides the unverified default `gpt-5.6-luna`; set it if that model is unavailable. Interactive AI import is not supported. Use `--skip-ai-import` for interactive tasks or an offline import that keeps the related TODOs.
 

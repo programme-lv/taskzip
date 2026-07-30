@@ -47,6 +47,18 @@ impl std::fmt::Display for LioStage {
     }
 }
 
+#[derive(ValueEnum, Clone, Copy, PartialEq)]
+enum LioDivision {
+    Junior,
+    Senior,
+}
+
+impl std::fmt::Display for LioDivision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_possible_value().unwrap().get_name())
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     #[command(about = "Convert a directory to .zip or a .zip to a directory in place")]
@@ -78,6 +90,8 @@ enum Command {
         year: Option<i32>,
         #[arg(long, value_enum)]
         stage: Option<LioStage>,
+        #[arg(long, value_enum)]
+        division: Vec<LioDivision>,
         #[arg(long, help = "Comma-separated task authors; empty allowed")]
         authors: Option<String>,
     },
@@ -127,6 +141,14 @@ enum TestsCommand {
     },
 }
 
+struct LioImportOptions {
+    skip_ai_import: bool,
+    year: Option<i32>,
+    stage: Option<LioStage>,
+    divisions: Vec<LioDivision>,
+    authors: Option<String>,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
@@ -142,8 +164,20 @@ fn main() -> Result<()> {
             skip_ai_import,
             year,
             stage,
+            division,
             authors,
-        } => run_import(format, src, dest, skip_ai_import, year, stage, authors),
+        } => run_import(
+            format,
+            src,
+            dest,
+            LioImportOptions {
+                skip_ai_import,
+                year,
+                stage,
+                divisions: division,
+                authors,
+            },
+        ),
     }
 }
 
@@ -275,16 +309,18 @@ fn run_import(
     format: ExternalFormat,
     src: PathBuf,
     dest: PathBuf,
-    skip_ai_import: bool,
-    year: Option<i32>,
-    stage: Option<LioStage>,
-    authors: Option<String>,
+    options: LioImportOptions,
 ) -> Result<()> {
-    check_import(&dest, skip_ai_import)?;
-    let origin = lio_origin(year, stage, authors)?;
+    check_import(&dest, options.skip_ai_import)?;
+    let origin = lio_origin(
+        options.year,
+        options.stage,
+        options.divisions,
+        options.authors,
+    )?;
     let dest = match format {
         ExternalFormat::Lio2024 => {
-            import::lio2024(&src, &dest, origin, skip_ai_import, progress::print)?
+            import::lio2024(&src, &dest, origin, options.skip_ai_import, progress::print)?
         }
     };
     println!("ok: imported {} to {}", format, dest.display());
@@ -304,6 +340,7 @@ fn check_import(dest: &Path, skip_ai_import: bool) -> Result<()> {
 fn lio_origin(
     year: Option<i32>,
     stage: Option<LioStage>,
+    divisions: Vec<LioDivision>,
     authors: Option<String>,
 ) -> Result<import::LioOrigin> {
     let year = match year {
@@ -313,6 +350,11 @@ fn lio_origin(
     let stage = match stage {
         Some(stage) => stage,
         None => prompt_stage()?,
+    };
+    let divisions = if divisions.is_empty() {
+        prompt_divisions()?
+    } else {
+        canonical_divisions(&divisions)
     };
     let authors = match authors {
         Some(authors) => authors,
@@ -325,6 +367,7 @@ fn lio_origin(
     Ok(import::LioOrigin {
         year,
         stage: stage.to_string(),
+        divisions,
         authors: parse_authors(&authors),
     })
 }
@@ -354,6 +397,29 @@ fn prompt_stage() -> Result<LioStage> {
         .interact()
         .context("read stage")?;
     Ok(stages[selected])
+}
+
+fn prompt_divisions() -> Result<Vec<String>> {
+    let choices = ["junior", "senior", "both"];
+    let selected = Select::new()
+        .with_prompt("Age group")
+        .items(choices)
+        .default(0)
+        .interact()
+        .context("read age group")?;
+    Ok(match selected {
+        0 => vec!["junior".into()],
+        1 => vec!["senior".into()],
+        _ => vec!["junior".into(), "senior".into()],
+    })
+}
+
+fn canonical_divisions(selected: &[LioDivision]) -> Vec<String> {
+    [LioDivision::Junior, LioDivision::Senior]
+        .into_iter()
+        .filter(|division| selected.contains(division))
+        .map(|division| division.to_string())
+        .collect()
 }
 
 fn parse_lio_year(value: &str) -> Result<i32, String> {

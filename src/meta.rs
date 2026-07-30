@@ -57,6 +57,8 @@ pub struct Origin {
     pub olymp: Option<String>,
     pub year: Option<i32>,
     pub stage: Option<String>,
+    #[serde(default)]
+    pub divisions: Vec<String>,
     pub org: Option<String>,
     #[serde(default)]
     pub authors: Vec<String>,
