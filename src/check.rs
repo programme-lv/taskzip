@@ -1,28 +1,9 @@
 use crate::meta::TaskMeta;
 use crate::package::Package;
+use crate::vocab;
 use anyhow::{bail, Result};
 use regex::Regex;
 use std::collections::BTreeSet;
-
-const TOPICS: &[&str] = &[
-    "implementation",
-    "arrays",
-    "strings",
-    "sorting-searching",
-    "mathematics",
-    "number-theory",
-    "combinatorics",
-    "graphs",
-    "trees",
-    "grids",
-    "geometry",
-    "data-structures",
-    "dynamic-programming",
-    "bitwise",
-    "games",
-    "construction",
-    "interactive",
-];
 
 pub fn preflight_generate(pkg: &Package) -> Result<()> {
     check_id(&pkg.meta)?;
@@ -466,8 +447,18 @@ fn check_metadata(meta: &TaskMeta, warns: &mut Vec<String>) -> Result<()> {
         }
     }
     for t in &m.topics {
-        if !TOPICS.contains(&t.as_str()) {
+        if !vocab::TOPICS.contains(&t.as_str()) {
             warns.push(format!("invalid metadata.topics slug {:?}", t));
+        }
+    }
+    for t in &m.techniques {
+        if !vocab::TECHNIQUES.contains(&t.as_str()) {
+            warns.push(format!("invalid metadata.techniques slug {:?}", t));
+        }
+    }
+    for t in &m.data_structures {
+        if !vocab::DATA_STRUCTURES.contains(&t.as_str()) {
+            warns.push(format!("invalid metadata.data_structures slug {:?}", t));
         }
     }
     Ok(())

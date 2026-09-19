@@ -72,6 +72,8 @@ taskzip import lio2024 path/to/source path/to/dest
 
 With `provider = "deepseek"` stored, the import above uses `deepseek-flash` with the stored key. A `.env` file is loaded too. Interactive AI import is not supported. Use `--skip-ai-import` for interactive tasks or an offline import that keeps the related TODOs.
 
+AI answers that fail validation (for example a wrong subtask count or an out-of-range difficulty) are sent back to the model to repair, up to two times, before the import fails. Classification slugs are checked against the TaskZip vocabulary: unknown slugs are dropped, and the rest are kept. After importing, check `archive/import-metadata.json` for the provider, model, prompt fingerprint, token usage, dropped and suggested slugs, and any uncertainties or questions the model reported. Uncertainty items, dropped or suggested slugs, and review warnings are also added to the generated `readme.md` TODO list. The import never stores model doubt in `task.toml`.
+
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 
 ## Layout

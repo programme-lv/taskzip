@@ -13,7 +13,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 /// Supported OpenAI-compatible chat completion providers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, ValueEnum)]
 pub enum Provider {
     #[default]
     #[value(name = "openai")]
@@ -191,6 +191,10 @@ const OUTPUT: &str = include_str!("../prompts/lio2024/output.md");
 const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
 const METADATA: &str = include_str!("../prompts/lio2024/metadata.md");
 const SOLUTION: &str = include_str!("../prompts/lio2024/solution.md");
+const REVIEW: &str = include_str!("../prompts/lio2024/review.md");
+
+/// How many times a rejected structured answer is sent back to the model.
+const MAX_REPAIR_ATTEMPTS: usize = 2;
 
 pub struct StatementParts {
     pub story: String,
@@ -200,6 +204,45 @@ pub struct StatementParts {
     pub metadata: TaskMetadata,
     pub solutions: Vec<SolutionEstimate>,
     pub usage: TokenUsage,
+    pub review: ImportReview,
+}
+
+/// Provenance and uncertainty captured while importing, written to
+/// `archive/import-metadata.json`. Never stored in `task.toml`.
+#[derive(Debug, Default, Serialize)]
+pub struct ImportReview {
+    pub provider: String,
+    pub model: String,
+    pub prompts_sha256: String,
+    pub usage: TokenUsage,
+    pub dropped_tags: Vec<DroppedTag>,
+    pub suggested_tags: Vec<SuggestedTag>,
+    pub uncertainties: Vec<String>,
+    pub questions: Vec<String>,
+    pub repairs: Vec<RepairNote>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DroppedTag {
+    pub field: String,
+    pub slug: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SuggestedTag {
+    #[serde(default)]
+    pub field: String,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RepairNote {
+    pub part: String,
+    pub error: String,
 }
 
 #[derive(Deserialize)]
@@ -216,7 +259,7 @@ pub struct SolutionEstimate {
     pub subtasks: Vec<u32>,
 }
 
-#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct TokenUsage {
     pub input: u64,
     pub output: u64,
@@ -253,22 +296,55 @@ pub fn import_statement(
     let mut chat = Chat::new(system, provider)?;
     on_progress(StatementEvent::Model(chat.model.clone()));
     let mut usage = TokenUsage::default();
+    let mut review = ImportReview::default();
     let story = ask_counted(&mut chat, "story", STORY, &mut usage, &mut on_progress)?;
     let input = ask_counted(&mut chat, "input", INPUT, &mut usage, &mut on_progress)?;
     let output = ask_counted(&mut chat, "output", OUTPUT, &mut usage, &mut on_progress)?;
     let subtasks_prompt = render_subtasks(subtask_count)?;
-    let subtasks_raw = ask_counted(
+    let subtasks = ask_validated(
         &mut chat,
         "subtasks",
         &subtasks_prompt,
+        |raw| parse_subtasks(raw, subtask_count),
         &mut usage,
         &mut on_progress,
+        &mut review.repairs,
     )?;
-    let subtasks = parse_subtasks(&subtasks_raw, subtask_count)?;
-    let metadata = ask_metadata(&mut chat, &mut usage, &mut on_progress)?;
-    let (solutions, solution_usage) =
-        estimate_solutions(&mut chat, solutions, &subtasks, cpu_ms, &mut on_progress)?;
+    let metadata_prompt = render_metadata()?;
+    let parsed = ask_validated(
+        &mut chat,
+        "metadata",
+        &metadata_prompt,
+        parse_metadata,
+        &mut usage,
+        &mut on_progress,
+        &mut review.repairs,
+    )?;
+    review.dropped_tags.extend(parsed.dropped);
+    review.warnings.extend(parsed.warnings);
+    let metadata = parsed.metadata;
+    let found = ask_review(
+        &mut chat,
+        &mut usage,
+        &mut on_progress,
+        &mut review.warnings,
+    )?;
+    review.uncertainties = found.uncertainties;
+    review.questions = found.questions;
+    review.suggested_tags = found.suggested_tags;
+    let (solutions, solution_usage) = estimate_solutions(
+        &mut chat,
+        solutions,
+        &subtasks,
+        cpu_ms,
+        &mut on_progress,
+        &mut review.repairs,
+    )?;
     usage += solution_usage;
+    review.provider = provider.id().to_string();
+    review.model = chat.model.clone();
+    review.prompts_sha256 = prompts_hash();
+    review.usage = usage;
     Ok(StatementParts {
         story,
         input,
@@ -277,16 +353,8 @@ pub fn import_statement(
         metadata,
         solutions,
         usage,
+        review,
     })
-}
-
-fn ask_metadata(
-    chat: &mut Chat,
-    usage: &mut TokenUsage,
-    on_progress: &mut impl FnMut(StatementEvent),
-) -> Result<TaskMetadata> {
-    let raw = ask_counted(chat, "metadata", METADATA, usage, on_progress)?;
-    parse_metadata(&raw)
 }
 
 fn ask_counted(
@@ -317,6 +385,131 @@ fn ask_part(
         cached,
     });
     Ok((content, usage))
+}
+
+/// Ask for a structured part and send validation failures back to the model up
+/// to [`MAX_REPAIR_ATTEMPTS`] times before giving up.
+fn ask_validated<T>(
+    chat: &mut Chat,
+    part: &str,
+    prompt: &str,
+    mut parse: impl FnMut(&str) -> Result<T>,
+    usage: &mut TokenUsage,
+    on_progress: &mut impl FnMut(StatementEvent),
+    repairs: &mut Vec<RepairNote>,
+) -> Result<T> {
+    let (value, errors) = retry_parse(
+        MAX_REPAIR_ATTEMPTS,
+        |repair| {
+            let next = match repair {
+                Some(error) => repair_prompt(part, error),
+                None => prompt.to_string(),
+            };
+            let (raw, used) = ask_part(chat, part, &next, on_progress)?;
+            *usage += used;
+            Ok(raw)
+        },
+        &mut parse,
+    )?;
+    for error in errors {
+        repairs.push(RepairNote {
+            part: part.to_string(),
+            error,
+        });
+    }
+    Ok(value)
+}
+
+/// Run `parse` on fresh answers until it succeeds. `fetch(None)` requests the
+/// first answer; `fetch(Some(error))` requests a corrected one.
+fn retry_parse<T>(
+    max_retries: usize,
+    mut fetch: impl FnMut(Option<&str>) -> Result<String>,
+    parse: &mut impl FnMut(&str) -> Result<T>,
+) -> Result<(T, Vec<String>)> {
+    let mut errors = Vec::new();
+    let mut repair: Option<String> = None;
+    for attempt in 0..=max_retries {
+        let raw = fetch(repair.as_deref())?;
+        match parse(&raw) {
+            Ok(value) => return Ok((value, errors)),
+            Err(err) if attempt < max_retries => {
+                let message = err.to_string();
+                errors.push(message.clone());
+                repair = Some(message);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("loop returns on its last iteration")
+}
+
+fn repair_prompt(part: &str, error: &str) -> String {
+    format!(
+        "Your previous {part} output was rejected: {error}\n\
+         Return a corrected response that satisfies the original instructions exactly. \
+         Return only the requested output."
+    )
+}
+
+#[derive(Deserialize, Default)]
+struct ReviewOutput {
+    #[serde(default)]
+    uncertainties: Vec<String>,
+    #[serde(default)]
+    questions: Vec<String>,
+    #[serde(default)]
+    suggested_tags: Vec<SuggestedTag>,
+}
+
+/// Final, best-effort pass: a malformed review answer becomes a warning rather
+/// than a failed import.
+fn ask_review(
+    chat: &mut Chat,
+    usage: &mut TokenUsage,
+    on_progress: &mut impl FnMut(StatementEvent),
+    warnings: &mut Vec<String>,
+) -> Result<ReviewOutput> {
+    let (raw, used) = ask_part(chat, "review", REVIEW, on_progress)?;
+    *usage += used;
+    match parse_review(&raw) {
+        Ok(review) => Ok(review),
+        Err(err) => {
+            warnings.push(format!("review pass unparsed: {err}"));
+            Ok(ReviewOutput::default())
+        }
+    }
+}
+
+fn parse_review(raw: &str) -> Result<ReviewOutput> {
+    let review: ReviewOutput =
+        serde_json::from_str(strip_json_fence(raw)).context("parse review JSON")?;
+    Ok(ReviewOutput {
+        uncertainties: clean_lines(review.uncertainties),
+        questions: clean_lines(review.questions),
+        suggested_tags: review
+            .suggested_tags
+            .into_iter()
+            .filter(|tag| vocab_allowed(&tag.field, &tag.slug))
+            .map(|tag| SuggestedTag {
+                field: tag.field.trim().to_string(),
+                slug: tag.slug.trim().to_string(),
+                reason: tag.reason.map(|reason| reason.trim().to_string()),
+            })
+            .collect(),
+    })
+}
+
+fn vocab_allowed(field: &str, slug: &str) -> bool {
+    crate::vocab::allowed(field.trim()).is_some_and(|list| list.contains(&slug.trim()))
+}
+
+fn clean_lines(items: Vec<String>) -> Vec<String> {
+    items
+        .into_iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
 }
 
 struct Chat {
@@ -517,20 +710,86 @@ fn parse_subtasks(raw: &str, expected: usize) -> Result<Vec<String>> {
     Ok(items.into_iter().map(|s| s.trim().to_string()).collect())
 }
 
-fn parse_metadata(raw: &str) -> Result<TaskMetadata> {
+struct MetadataParse {
+    metadata: TaskMetadata,
+    dropped: Vec<DroppedTag>,
+    warnings: Vec<String>,
+}
+
+fn parse_metadata(raw: &str) -> Result<MetadataParse> {
     let metadata: TaskMetadata =
         serde_json::from_str(strip_json_fence(raw)).context("parse task metadata JSON")?;
     if !(1..=5).contains(&metadata.difficulty) {
         bail!("task difficulty out of range");
     }
-    if metadata.topics.is_empty()
-        || metadata.topics.len() > 2
+    if metadata.topics.is_empty() {
+        bail!("metadata has no topics");
+    }
+    let mut dropped = Vec::new();
+    let metadata = TaskMetadata {
+        topics: filter_tags(
+            "topics",
+            metadata.topics,
+            crate::vocab::TOPICS,
+            &mut dropped,
+        ),
+        techniques: filter_tags(
+            "techniques",
+            metadata.techniques,
+            crate::vocab::TECHNIQUES,
+            &mut dropped,
+        ),
+        data_structures: filter_tags(
+            "data_structures",
+            metadata.data_structures,
+            crate::vocab::DATA_STRUCTURES,
+            &mut dropped,
+        ),
+        difficulty: metadata.difficulty,
+    };
+    if metadata.topics.len() > 2
         || metadata.techniques.len() > 4
         || metadata.data_structures.len() > 3
     {
-        bail!("too many or no classification tags");
+        bail!("too many classification tags");
     }
-    Ok(metadata)
+    let mut warnings = Vec::new();
+    if metadata.topics.is_empty() {
+        warnings.push("no valid metadata.topics slug remains after dropping invalid slugs".into());
+    }
+    Ok(MetadataParse {
+        metadata,
+        dropped,
+        warnings,
+    })
+}
+
+/// Drop slugs outside the hardcoded allow list, recording each one. Deduplicates
+/// in the order the model returned them.
+fn filter_tags(
+    field: &str,
+    tags: Vec<String>,
+    allowed: &[&str],
+    dropped: &mut Vec<DroppedTag>,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tag in tags {
+        let tag = tag.trim().to_string();
+        if tag.is_empty() {
+            continue;
+        }
+        if allowed.contains(&tag.as_str()) {
+            if !out.contains(&tag) {
+                out.push(tag);
+            }
+        } else {
+            dropped.push(DroppedTag {
+                field: field.to_string(),
+                slug: tag,
+            });
+        }
+    }
+    out
 }
 
 fn estimate_solutions(
@@ -539,6 +798,7 @@ fn estimate_solutions(
     subtasks: &[String],
     cpu_ms: u32,
     on_progress: &mut impl FnMut(StatementEvent),
+    repairs: &mut Vec<RepairNote>,
 ) -> Result<(Vec<SolutionEstimate>, TokenUsage)> {
     let mut estimates = Vec::new();
     let mut usage = TokenUsage::default();
@@ -546,11 +806,18 @@ fn estimate_solutions(
         chat.reset();
         let prompt = render_solution(fname, source, subtasks, cpu_ms)?;
         let part = format!("solution {fname}");
-        let (raw, used) = ask_part(chat, &part, &prompt, on_progress)?;
-        usage += used;
+        let ids = ask_validated(
+            chat,
+            &part,
+            &prompt,
+            |raw| parse_solution_subtasks(raw, subtasks.len(), fname),
+            &mut usage,
+            on_progress,
+            repairs,
+        )?;
         estimates.push(SolutionEstimate {
             fname: fname.clone(),
-            subtasks: parse_solution_subtasks(&raw, subtasks.len(), fname)?,
+            subtasks: ids,
         });
     }
     Ok((estimates, usage))
@@ -594,6 +861,33 @@ fn render_system(typ_source: &str, images: &[String]) -> Result<String> {
 fn render_subtasks(count: usize) -> Result<String> {
     let count = count.to_string();
     render_template(SUBTASKS, &[("count", &count)])
+}
+
+fn render_metadata() -> Result<String> {
+    let topics = crate::vocab::TOPICS.join(", ");
+    let techniques = crate::vocab::TECHNIQUES.join(", ");
+    let data_structures = crate::vocab::DATA_STRUCTURES.join(", ");
+    render_template(
+        METADATA,
+        &[
+            ("topics", &topics),
+            ("techniques", &techniques),
+            ("data_structures", &data_structures),
+        ],
+    )
+}
+
+/// Fingerprint of the prompt templates, recorded in the review artifact so an
+/// import can be traced back to the instructions that produced it.
+fn prompts_hash() -> String {
+    let mut hash = Sha256::new();
+    for part in [
+        SYSTEM, FORMAT, STORY, INPUT, OUTPUT, SUBTASKS, METADATA, SOLUTION, REVIEW,
+    ] {
+        hash.update(part.as_bytes());
+        hash.update([0]);
+    }
+    format!("{:x}", hash.finalize())
 }
 
 fn render_solution(fname: &str, source: &str, subtasks: &[String], cpu_ms: u32) -> Result<String> {
@@ -734,5 +1028,111 @@ mod tests {
         let config = config::Config::default();
         let err = credentials(Provider::DeepSeek, None, None, &config).unwrap_err();
         assert!(err.to_string().contains("taskzip configure deepseek"));
+    }
+
+    #[test]
+    fn retry_parse_repairs_before_giving_up() {
+        let answers = std::cell::RefCell::new(vec!["bad", "still bad", "42"]);
+        let (value, errors) = retry_parse(
+            2,
+            |_| {
+                let mut answers = answers.borrow_mut();
+                if answers.is_empty() {
+                    panic!("fetch called too many times");
+                }
+                Ok(answers.remove(0).to_string())
+            },
+            &mut |raw: &str| raw.parse::<u32>().map_err(Into::into),
+        )
+        .unwrap();
+        assert_eq!(value, 42);
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn retry_parse_returns_last_error() {
+        let err = retry_parse(1, |_| Ok("nope".to_string()), &mut |raw: &str| {
+            raw.parse::<u32>().map_err(Into::into)
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid digit"));
+    }
+
+    #[test]
+    fn metadata_drops_unknown_slugs() {
+        let raw = r#"{"topics":["graphs","not-a-topic"],"techniques":["dijkstra"],
+            "data_structures":["priority-queue","segment-tree","made-up"],"difficulty":3}"#;
+        let parsed = parse_metadata(raw).unwrap();
+        assert_eq!(parsed.metadata.topics, vec!["graphs"]);
+        assert_eq!(parsed.metadata.techniques, vec!["dijkstra"]);
+        assert_eq!(
+            parsed.metadata.data_structures,
+            vec!["priority-queue", "segment-tree"]
+        );
+        let dropped: Vec<_> = parsed
+            .dropped
+            .iter()
+            .map(|tag| (tag.field.as_str(), tag.slug.as_str()))
+            .collect();
+        assert_eq!(
+            dropped,
+            vec![("topics", "not-a-topic"), ("data_structures", "made-up")]
+        );
+        assert!(parsed.warnings.is_empty());
+    }
+
+    #[test]
+    fn metadata_warns_when_no_topic_survives() {
+        let raw = r#"{"topics":["invented"],"techniques":[],"data_structures":[],"difficulty":2}"#;
+        let parsed = parse_metadata(raw).unwrap();
+        assert!(parsed.metadata.topics.is_empty());
+        assert_eq!(parsed.dropped.len(), 1);
+        assert_eq!(parsed.warnings.len(), 1);
+    }
+
+    #[test]
+    fn metadata_rejects_over_limit_tags() {
+        let raw = r#"{"topics":["graphs","trees","grids"],"techniques":[],
+            "data_structures":[],"difficulty":3}"#;
+        assert!(parse_metadata(raw).is_err());
+    }
+
+    #[test]
+    fn review_keeps_only_known_fields() {
+        let raw = r#"{"uncertainties":[" time limit unclear "],"questions":["Which?"],
+            "suggested_tags":[{"field":"techniques","slug":"dijkstra"},
+                {"field":"nonsense","slug":"x"}]}"#;
+        let review = parse_review(raw).unwrap();
+        assert_eq!(review.uncertainties, vec!["time limit unclear"]);
+        assert_eq!(review.questions, vec!["Which?"]);
+        assert_eq!(review.suggested_tags.len(), 1);
+        assert_eq!(review.suggested_tags[0].field, "techniques");
+    }
+
+    #[test]
+    fn review_accepts_code_fence() {
+        let raw = "```json\n{\"uncertainties\":[],\"questions\":[],\"suggested_tags\":[]}\n```";
+        let review = parse_review(raw).unwrap();
+        assert!(review.uncertainties.is_empty());
+    }
+
+    #[test]
+    fn metadata_prompt_lists_every_allowed_slug() {
+        let prompt = render_metadata().unwrap();
+        for slug in crate::vocab::TOPICS {
+            assert!(prompt.contains(slug), "missing topic {slug}");
+        }
+        for slug in crate::vocab::TECHNIQUES {
+            assert!(prompt.contains(slug), "missing technique {slug}");
+        }
+        for slug in crate::vocab::DATA_STRUCTURES {
+            assert!(prompt.contains(slug), "missing data structure {slug}");
+        }
+    }
+
+    #[test]
+    fn prompts_hash_is_stable() {
+        assert_eq!(prompts_hash(), prompts_hash());
+        assert_eq!(prompts_hash().len(), 64);
     }
 }

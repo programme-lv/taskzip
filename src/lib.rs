@@ -10,3 +10,4 @@ pub mod package;
 pub mod progress;
 pub mod run;
 pub mod score;
+pub mod vocab;

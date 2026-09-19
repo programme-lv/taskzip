@@ -6,13 +6,13 @@ Prefer fewer tags: omit a technique or data structure unless it is central to th
 Use only these slugs in the matching fields:
 
 Topics:
-implementation, arrays, strings, sorting-searching, mathematics, number-theory, combinatorics, graphs, trees, grids, geometry, data-structures, dynamic-programming, bitwise, games, construction, interactive
+{{topics}}
 
 Techniques:
-brute-force, simulation, sorting, binary-search, two-pointers, sliding-window, prefix-sums, difference-array, greedy, recursion, backtracking, divide-and-conquer, meet-in-the-middle, coordinate-compression, sweep-line, bfs, dfs, flood-fill, shortest-paths, dijkstra, bellman-ford, floyd-warshall, topological-sort, strongly-connected-components, minimum-spanning-tree, euler-tour, lca, tree-dp, max-flow, matching, dp, knapsack-dp, interval-dp, bitmask-dp, digit-dp, dp-optimization, modular-arithmetic, gcd, sieve, primes, combinatorics, probability, matrix-exponentiation, game-theory, string-matching, hashing, kmp, z-function, trie, suffix-array, convex-hull, point-line-geometry, polygon-geometry
+{{techniques}}
 
 Data structures:
-array, stack, queue, deque, map-set, priority-queue, dsu, fenwick-tree, segment-tree, lazy-segment-tree, sparse-table, ordered-set, bitset, trie
+{{data_structures}}
 
 Set difficulty from 1 to 5:
 1 basic implementation with no hidden algorithmic idea;

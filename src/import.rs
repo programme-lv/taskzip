@@ -258,7 +258,7 @@ impl LioTask {
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<()> {
-        self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
+        let review = self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
         self.write_code(src, dest, on_progress)?;
         stage(on_progress, 0, "write archive");
         self.write_archive(src, dest)?;
@@ -268,7 +268,7 @@ impl LioTask {
             1,
             format!("archive/original/ ({} files)", archive.files),
         );
-        report_todos(on_progress, !skip_ai_import);
+        report_todos(on_progress, !skip_ai_import, review.as_ref());
         Ok(())
     }
 
@@ -279,7 +279,7 @@ impl LioTask {
         provider: assist::Provider,
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
-    ) -> Result<()> {
+    ) -> Result<Option<assist::ImportReview>> {
         let statement = dest.join("statement");
         fs::create_dir_all(&statement)?;
         let images = self.copy_statement_assets(src, dest, &statement)?;
@@ -294,15 +294,27 @@ impl LioTask {
         stage(on_progress, 0, "write meta");
         self.write_meta(dest, descriptions, metadata, solutions)?;
         detail(on_progress, 1, "task.toml");
+        if let Some(parts) = &ai {
+            self.write_import_metadata(dest, &parts.review)?;
+        }
         stage(on_progress, 0, "write tests");
         self.write_tests(dest)?;
         detail(on_progress, 1, self.tests_summary());
         self.write_statement(dest, &images, ai.as_ref(), skip_ai_import, on_progress)?;
-        if !todo_items(!skip_ai_import).is_empty() {
+        let review = ai.as_ref().map(|parts| &parts.review);
+        if !todo_items(!skip_ai_import, review).is_empty() {
             stage(on_progress, 0, "write readme");
-            self.write_readme(dest, !skip_ai_import)?;
+            self.write_readme(dest, !skip_ai_import, review)?;
             detail(on_progress, 1, "readme.md");
         }
+        Ok(ai.map(|parts| parts.review))
+    }
+
+    fn write_import_metadata(&self, dest: &Path, review: &assist::ImportReview) -> Result<()> {
+        let archive = dest.join("archive");
+        fs::create_dir_all(&archive)?;
+        let body = serde_json::to_string_pretty(review).context("serialize import metadata")?;
+        fs::write(archive.join("import-metadata.json"), format!("{body}\n"))?;
         Ok(())
     }
 
@@ -488,9 +500,14 @@ impl LioTask {
         Ok(out)
     }
 
-    fn write_readme(&self, dest: &Path, ai_imported: bool) -> Result<()> {
+    fn write_readme(
+        &self,
+        dest: &Path,
+        ai_imported: bool,
+        review: Option<&assist::ImportReview>,
+    ) -> Result<()> {
         let mut text = String::from("## TODO\n\n");
-        for item in todo_items(ai_imported) {
+        for item in todo_items(ai_imported, review) {
             text.push_str(&format!("- [ ] {item}\n"));
         }
         fs::write(dest.join("readme.md"), text)?;
@@ -775,23 +792,53 @@ fn file_list(files: &[String]) -> String {
     }
 }
 
-fn todo_items(ai_imported: bool) -> Vec<&'static str> {
-    let mut items = Vec::new();
+fn todo_items(ai_imported: bool, review: Option<&assist::ImportReview>) -> Vec<String> {
+    let mut items: Vec<String> = Vec::new();
     if !ai_imported {
-        items.push("port statement from `archive/original/teksts/` to `statement/lv.md`");
-        items.push("replace placeholder subtask descriptions");
-        items.push("review imported solution scores");
-        items.push("set task difficulty and classification tags");
+        items.push("port statement from `archive/original/teksts/` to `statement/lv.md`".into());
+        items.push("replace placeholder subtask descriptions".into());
+        items.push("review imported solution scores".into());
+        items.push("set task difficulty and classification tags".into());
+    }
+    if let Some(review) = review {
+        for tag in &review.dropped_tags {
+            items.push(format!(
+                "replace dropped metadata.{} slug {:?}",
+                tag.field, tag.slug
+            ));
+        }
+        for tag in &review.suggested_tags {
+            items.push(format!(
+                "consider metadata.{} slug {:?}: {}",
+                tag.field,
+                tag.slug,
+                tag.reason.as_deref().unwrap_or("no reason given")
+            ));
+        }
+        for uncertainty in &review.uncertainties {
+            items.push(format!("verify AI assumption: {uncertainty}"));
+        }
+        for question in &review.questions {
+            items.push(format!("answer AI question: {question}"));
+        }
+        for warning in &review.warnings {
+            items.push(format!("resolve AI review warning: {warning}"));
+        }
     }
     items
 }
 
-fn report_todos(on_progress: &mut impl FnMut(Event), ai_imported: bool) {
-    if todo_items(ai_imported).is_empty() {
+fn report_todos(
+    on_progress: &mut impl FnMut(Event),
+    ai_imported: bool,
+    review: Option<&assist::ImportReview>,
+) {
+    let items = todo_items(ai_imported, review);
+    if items.is_empty() {
         return;
     }
     stage(on_progress, 0, "remaining TODOs");
-    for item in todo_items(ai_imported) {
+    for item in items {
         detail(on_progress, 1, format!("- {item}"));
     }
 }
@@ -1131,4 +1178,50 @@ fn string_array(items: &[String]) -> String {
 fn number_array(numbers: &[u32]) -> String {
     let values: Vec<_> = numbers.iter().map(u32::to_string).collect();
     format!("[{}]", values.join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assist::{DroppedTag, ImportReview, SuggestedTag};
+
+    #[test]
+    fn todo_items_surface_review_findings() {
+        let review = ImportReview {
+            dropped_tags: vec![DroppedTag {
+                field: "topics".into(),
+                slug: "bogus".into(),
+            }],
+            suggested_tags: vec![SuggestedTag {
+                field: "techniques".into(),
+                slug: "lerp".into(),
+                reason: Some("no listed fit".into()),
+            }],
+            uncertainties: vec!["time limit unclear".into()],
+            questions: vec!["which limit applies?".into()],
+            warnings: vec!["review pass unparsed: x".into()],
+            ..Default::default()
+        };
+        let items = todo_items(true, Some(&review));
+        for needle in [
+            "bogus",
+            "lerp",
+            "no listed fit",
+            "time limit unclear",
+            "which limit applies?",
+            "review pass unparsed",
+        ] {
+            assert!(
+                items.iter().any(|item| item.contains(needle)),
+                "missing {needle:?} in {items:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clean_ai_import_needs_no_readme() {
+        let review = ImportReview::default();
+        assert!(todo_items(true, Some(&review)).is_empty());
+        assert!(!todo_items(false, None).is_empty());
+    }
 }
