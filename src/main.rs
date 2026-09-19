@@ -1,5 +1,6 @@
-use taskzip::assist;
+use taskzip::assist::{self, Provider};
 use taskzip::check;
+use taskzip::config;
 use taskzip::convert;
 use taskzip::exec;
 use taskzip::generate;
@@ -11,7 +12,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{Datelike, Local};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
-use dialoguer::{Input, Select};
+use dialoguer::{Input, Password, Select};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -63,6 +64,15 @@ impl std::fmt::Display for LioDivision {
 enum Command {
     #[command(about = "Convert a directory to .zip or a .zip to a directory in place")]
     Convert { input: PathBuf },
+    #[command(about = "Store an AI provider API key in the taskzip config file")]
+    Configure {
+        #[arg(value_enum, help = "Provider to configure; prompts when omitted")]
+        provider: Option<Provider>,
+        #[arg(long, help = "API key; prompts without echo when omitted")]
+        api_key: Option<String>,
+        #[arg(long, help = "Model id; defaults to the provider default")]
+        model: Option<String>,
+    },
     #[command(about = "Generate shell completion scripts")]
     Completions {
         #[arg(value_enum)]
@@ -84,6 +94,12 @@ enum Command {
         format: ExternalFormat,
         src: PathBuf,
         dest: PathBuf,
+        #[arg(
+            long,
+            value_enum,
+            help = "AI provider override (default: config, then TASKZIP_PROVIDER)"
+        )]
+        provider: Option<Provider>,
         #[arg(long)]
         skip_ai_import: bool,
         #[arg(long, value_parser = parse_lio_year)]
@@ -142,6 +158,7 @@ enum TestsCommand {
 }
 
 struct LioImportOptions {
+    provider: Option<Provider>,
     skip_ai_import: bool,
     year: Option<i32>,
     stage: Option<LioStage>,
@@ -153,6 +170,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Command::Convert { input } => run_convert(input),
+        Command::Configure {
+            provider,
+            api_key,
+            model,
+        } => run_configure(provider, api_key, model),
         Command::Completions { shell } => run_completions(shell),
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
@@ -161,6 +183,7 @@ fn main() -> Result<()> {
             format,
             src,
             dest,
+            provider,
             skip_ai_import,
             year,
             stage,
@@ -171,6 +194,7 @@ fn main() -> Result<()> {
             src,
             dest,
             LioImportOptions {
+                provider,
                 skip_ai_import,
                 year,
                 stage,
@@ -179,6 +203,86 @@ fn main() -> Result<()> {
             },
         ),
     }
+}
+
+fn run_configure(
+    provider: Option<Provider>,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> Result<()> {
+    let _ = dotenvy::dotenv();
+    let mut config = config::load()?;
+    let provider = match provider {
+        Some(provider) => provider,
+        None if api_key.is_some() => assist::resolve_provider(None)?,
+        None => prompt_provider(config.provider.as_deref())?,
+    };
+    let existing = config
+        .provider_config(provider.id())
+        .cloned()
+        .unwrap_or_default();
+    let interactive = api_key.is_none();
+    let api_key = match api_key {
+        Some(key) => {
+            if key.trim().is_empty() {
+                bail!("API key empty");
+            }
+            key
+        }
+        None => Password::new()
+            .with_prompt(format!("{} API key", provider.name()))
+            .allow_empty_password(false)
+            .interact()
+            .context("read API key")?,
+    };
+    let default_model = env_value(provider.model_env())
+        .or_else(|| existing.model.clone())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| provider.default_model().to_string());
+    let model = match model {
+        Some(model) => model,
+        None if interactive => Input::new()
+            .with_prompt("Model")
+            .default(default_model)
+            .interact_text()
+            .context("read model")?,
+        None => default_model,
+    };
+    config.provider = Some(provider.id().to_string());
+    config.providers.insert(
+        provider.id().to_string(),
+        config::ProviderConfig {
+            api_key: Some(api_key),
+            model: Some(model.trim().to_string()),
+        },
+    );
+    let path = config::save(&config)?;
+    println!(
+        "ok: stored {} settings in {}",
+        provider.name(),
+        path.display()
+    );
+    Ok(())
+}
+
+fn prompt_provider(current: Option<&str>) -> Result<Provider> {
+    let default = current
+        .and_then(|id| Provider::from_id(id).ok())
+        .and_then(|provider| Provider::ALL.iter().position(|item| *item == provider))
+        .unwrap_or(0);
+    let selected = Select::new()
+        .with_prompt("AI provider")
+        .items(Provider::ALL)
+        .default(default)
+        .interact()
+        .context("read provider")?;
+    Ok(Provider::ALL[selected])
+}
+
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn run_completions(shell: Shell) -> Result<()> {
@@ -311,7 +415,12 @@ fn run_import(
     dest: PathBuf,
     options: LioImportOptions,
 ) -> Result<()> {
-    check_import(&dest, options.skip_ai_import)?;
+    let provider = if options.skip_ai_import {
+        Provider::default()
+    } else {
+        assist::resolve_provider(options.provider)?
+    };
+    check_import(&dest, provider, options.skip_ai_import)?;
     let origin = lio_origin(
         options.year,
         options.stage,
@@ -319,20 +428,25 @@ fn run_import(
         options.authors,
     )?;
     let dest = match format {
-        ExternalFormat::Lio2024 => {
-            import::lio2024(&src, &dest, origin, options.skip_ai_import, progress::print)?
-        }
+        ExternalFormat::Lio2024 => import::lio2024(
+            &src,
+            &dest,
+            origin,
+            provider,
+            options.skip_ai_import,
+            progress::print,
+        )?,
     };
     println!("ok: imported {} to {}", format, dest.display());
     Ok(())
 }
 
-fn check_import(dest: &Path, skip_ai_import: bool) -> Result<()> {
+fn check_import(dest: &Path, provider: Provider, skip_ai_import: bool) -> Result<()> {
     if !dest.is_dir() {
         bail!("dest is not a directory: {}", dest.display());
     }
     if !skip_ai_import {
-        assist::check_openai_api_key()?;
+        assist::check_api_key(provider)?;
     }
     Ok(())
 }

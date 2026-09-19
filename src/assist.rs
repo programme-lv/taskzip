@@ -1,7 +1,10 @@
+use crate::config;
 use anyhow::{bail, Context, Result};
+use clap::ValueEnum;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::ops::AddAssign;
@@ -9,8 +12,177 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::Instant;
 
-const API_URL: &str = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL: &str = "gpt-5.6-luna";
+/// Supported OpenAI-compatible chat completion providers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum Provider {
+    #[default]
+    #[value(name = "openai")]
+    OpenAi,
+    #[value(name = "deepseek")]
+    DeepSeek,
+}
+
+impl Provider {
+    pub const ALL: [Provider; 2] = [Provider::OpenAi, Provider::DeepSeek];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "openai",
+            Provider::DeepSeek => "deepseek",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "OpenAI",
+            Provider::DeepSeek => "DeepSeek",
+        }
+    }
+
+    pub fn api_url(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "https://api.openai.com/v1/chat/completions",
+            Provider::DeepSeek => "https://api.deepseek.com/chat/completions",
+        }
+    }
+
+    pub fn api_key_env(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "OPENAI_API_KEY",
+            Provider::DeepSeek => "DEEPSEEK_API_KEY",
+        }
+    }
+
+    pub fn model_env(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "OPENAI_MODEL",
+            Provider::DeepSeek => "DEEPSEEK_MODEL",
+        }
+    }
+
+    pub fn default_model(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "gpt-5.6-luna",
+            Provider::DeepSeek => "deepseek-flash",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Result<Self> {
+        match id.trim().to_ascii_lowercase().as_str() {
+            "openai" => Ok(Provider::OpenAi),
+            "deepseek" => Ok(Provider::DeepSeek),
+            other => bail!("unknown provider {other:?}; use openai or deepseek"),
+        }
+    }
+}
+
+impl fmt::Display for Provider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.id())
+    }
+}
+
+pub struct Credentials {
+    pub api_key: String,
+    pub model: String,
+    pub api_url: &'static str,
+}
+
+impl fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Credentials")
+            .field("api_key", &"<redacted>")
+            .field("model", &self.model)
+            .field("api_url", &self.api_url)
+            .finish()
+    }
+}
+
+/// Resolve the provider to use: `--provider` flag, then `TASKZIP_PROVIDER`,
+/// then the config default, then OpenAI.
+pub fn resolve_provider(cli: Option<Provider>) -> Result<Provider> {
+    let _ = dotenvy::dotenv();
+    let config = config::load()?;
+    select_provider(
+        cli,
+        std::env::var("TASKZIP_PROVIDER").ok().as_deref(),
+        config.provider.as_deref(),
+    )
+}
+
+fn select_provider(
+    cli: Option<Provider>,
+    env: Option<&str>,
+    config_provider: Option<&str>,
+) -> Result<Provider> {
+    if let Some(provider) = cli {
+        return Ok(provider);
+    }
+    if let Some(value) = non_empty(env) {
+        return Provider::from_id(value);
+    }
+    if let Some(value) = non_empty(config_provider) {
+        return Provider::from_id(value);
+    }
+    Ok(Provider::default())
+}
+
+/// Resolve the API key and model for a provider. The environment wins over the
+/// config file; the model falls back to the provider default.
+pub fn resolve_credentials(provider: Provider) -> Result<Credentials> {
+    let _ = dotenvy::dotenv();
+    let config = config::load()?;
+    let env_key = std::env::var(provider.api_key_env()).ok();
+    let env_model = std::env::var(provider.model_env()).ok();
+    credentials(provider, env_key.as_deref(), env_model.as_deref(), &config)
+}
+
+pub fn check_api_key(provider: Provider) -> Result<()> {
+    resolve_credentials(provider).map(drop)
+}
+
+fn credentials(
+    provider: Provider,
+    env_key: Option<&str>,
+    env_model: Option<&str>,
+    config: &config::Config,
+) -> Result<Credentials> {
+    let stored = config.provider_config(provider.id());
+    let api_key = match env_key {
+        Some(value) => required(provider.api_key_env(), value)?,
+        None => stored
+            .and_then(|item| non_empty(item.api_key.as_deref()))
+            .map(str::to_string)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "{} missing; run `taskzip configure {}` or set {}",
+                    provider.api_key_env(),
+                    provider.id(),
+                    provider.api_key_env()
+                )
+            })?,
+    };
+    let model = non_empty(env_model)
+        .or_else(|| stored.and_then(|item| non_empty(item.model.as_deref())))
+        .unwrap_or_else(|| provider.default_model())
+        .to_string();
+    Ok(Credentials {
+        api_key,
+        model,
+        api_url: provider.api_url(),
+    })
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|item| !item.is_empty())
+}
+
+fn required(name: &str, value: &str) -> Result<String> {
+    if value.trim().is_empty() {
+        bail!("{name} empty");
+    }
+    Ok(value.to_string())
+}
 const SYSTEM: &str = include_str!("../prompts/lio2024/system.md");
 const FORMAT: &str = include_str!("../prompts/lio2024/format.md");
 const STORY: &str = include_str!("../prompts/lio2024/story.md");
@@ -69,6 +241,7 @@ pub enum StatementEvent {
 }
 
 pub fn import_statement(
+    provider: Provider,
     typ_source: &str,
     images: &[String],
     subtask_count: usize,
@@ -77,7 +250,7 @@ pub fn import_statement(
     mut on_progress: impl FnMut(StatementEvent),
 ) -> Result<StatementParts> {
     let system = render_system(typ_source, images)?;
-    let mut chat = Chat::new(system)?;
+    let mut chat = Chat::new(system, provider)?;
     on_progress(StatementEvent::Model(chat.model.clone()));
     let mut usage = TokenUsage::default();
     let story = ask_counted(&mut chat, "story", STORY, &mut usage, &mut on_progress)?;
@@ -150,25 +323,24 @@ struct Chat {
     client: Client,
     api_key: String,
     model: String,
+    api_url: &'static str,
+    provider: Provider,
     messages: Vec<Message>,
 }
 
 impl Chat {
-    fn new(system: String) -> Result<Self> {
-        let _ = dotenvy::dotenv();
-        let api_key = env("OPENAI_API_KEY")?;
-        let model = std::env::var("OPENAI_MODEL")
-            .ok()
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_MODEL.into());
+    fn new(system: String, provider: Provider) -> Result<Self> {
+        let credentials = resolve_credentials(provider)?;
         let client = Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
-            .context("build OpenAI client")?;
+            .context("build AI client")?;
         Ok(Self {
             client,
-            api_key,
-            model,
+            api_key: credentials.api_key,
+            model: credentials.model,
+            api_url: credentials.api_url,
+            provider,
             messages: vec![Message::new("system", system)],
         })
     }
@@ -179,7 +351,7 @@ impl Chat {
             model: &self.model,
             messages: &self.messages,
         };
-        let cache_path = response_cache_path(&request)?;
+        let cache_path = response_cache_path(&request, self.provider)?;
         if let Some(response) = read_cached_response(&cache_path)? {
             self.messages
                 .push(Message::new("assistant", &response.content));
@@ -187,11 +359,11 @@ impl Chat {
         }
         let response = self
             .client
-            .post(API_URL)
+            .post(self.api_url)
             .bearer_auth(&self.api_key)
             .json(&request)
             .send()
-            .context("OpenAI request")?;
+            .with_context(|| format!("{} request", self.provider.name()))?;
         let response = parse_response(response)?;
         write_cached_response(&cache_path, &response)?;
         self.messages
@@ -202,11 +374,6 @@ impl Chat {
     fn reset(&mut self) {
         self.messages.truncate(1);
     }
-}
-
-pub fn check_openai_api_key() -> Result<()> {
-    let _ = dotenvy::dotenv();
-    env("OPENAI_API_KEY").map(drop)
 }
 
 #[derive(Clone, Serialize)]
@@ -294,22 +461,22 @@ fn parse_response(response: reqwest::blocking::Response) -> Result<CachedRespons
     Ok(CachedResponse { content, usage })
 }
 
-fn response_cache_path(request: &ChatRequest<'_>) -> Result<PathBuf> {
+fn response_cache_path(request: &ChatRequest<'_>, provider: Provider) -> Result<PathBuf> {
     let body = serde_json::to_vec(request)?;
     let mut hash = Sha256::new();
-    hash.update(API_URL);
+    hash.update(provider.api_url());
     hash.update([0]);
     hash.update(body);
-    Ok(user_cache_root()?.join(format!("{:x}.json", hash.finalize())))
+    Ok(user_cache_root(provider)?.join(format!("{:x}.json", hash.finalize())))
 }
 
-fn user_cache_root() -> Result<PathBuf> {
+fn user_cache_root(provider: Provider) -> Result<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
         .ok_or_else(|| anyhow::anyhow!("no cache home"))?;
-    Ok(base.join("taskzip").join("openai"))
+    Ok(base.join("taskzip").join(provider.id()))
 }
 
 fn read_cached_response(path: &Path) -> Result<Option<CachedResponse>> {
@@ -478,10 +645,94 @@ fn image_list(images: &[String]) -> String {
         .join("\n")
 }
 
-fn env(name: &str) -> Result<String> {
-    let value = std::env::var(name).with_context(|| format!("{name} missing"))?;
-    if value.trim().is_empty() {
-        bail!("{name} empty");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with(
+        provider: &str,
+        id: &str,
+        api_key: Option<&str>,
+        model: Option<&str>,
+    ) -> config::Config {
+        let mut providers = std::collections::BTreeMap::new();
+        providers.insert(
+            id.to_string(),
+            config::ProviderConfig {
+                api_key: api_key.map(str::to_string),
+                model: model.map(str::to_string),
+            },
+        );
+        config::Config {
+            provider: Some(provider.to_string()),
+            providers,
+        }
     }
-    Ok(value)
+
+    #[test]
+    fn provider_roundtrips_by_id() {
+        for provider in Provider::ALL {
+            assert_eq!(Provider::from_id(provider.id()).unwrap(), provider);
+        }
+        assert!(Provider::from_id("gemini").is_err());
+    }
+
+    #[test]
+    fn cli_provider_wins() {
+        let selected =
+            select_provider(Some(Provider::DeepSeek), Some("openai"), Some("openai")).unwrap();
+        assert_eq!(selected, Provider::DeepSeek);
+    }
+
+    #[test]
+    fn env_provider_beats_config() {
+        let selected = select_provider(None, Some("deepseek"), Some("openai")).unwrap();
+        assert_eq!(selected, Provider::DeepSeek);
+    }
+
+    #[test]
+    fn config_provider_is_default() {
+        assert_eq!(
+            select_provider(None, None, Some("deepseek")).unwrap(),
+            Provider::DeepSeek
+        );
+        assert_eq!(
+            select_provider(None, Some("  "), None).unwrap(),
+            Provider::OpenAi
+        );
+    }
+
+    #[test]
+    fn env_key_beats_config() {
+        let config = config_with("deepseek", "deepseek", Some("stored"), Some("stored-model"));
+        let resolved = credentials(Provider::DeepSeek, Some("from-env"), None, &config).unwrap();
+        assert_eq!(resolved.api_key, "from-env");
+        assert_eq!(resolved.model, "stored-model");
+        assert_eq!(
+            resolved.api_url,
+            "https://api.deepseek.com/chat/completions"
+        );
+    }
+
+    #[test]
+    fn model_falls_back_to_default() {
+        let config = config_with("deepseek", "deepseek", Some("stored"), None);
+        let resolved = credentials(Provider::DeepSeek, None, None, &config).unwrap();
+        assert_eq!(resolved.api_key, "stored");
+        assert_eq!(resolved.model, "deepseek-flash");
+    }
+
+    #[test]
+    fn empty_env_key_is_rejected() {
+        let config = config_with("openai", "openai", Some("stored"), None);
+        let err = credentials(Provider::OpenAi, Some(""), None, &config).unwrap_err();
+        assert!(err.to_string().contains("OPENAI_API_KEY empty"));
+    }
+
+    #[test]
+    fn missing_key_points_at_configure() {
+        let config = config::Config::default();
+        let err = credentials(Provider::DeepSeek, None, None, &config).unwrap_err();
+        assert!(err.to_string().contains("taskzip configure deepseek"));
+    }
 }

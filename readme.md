@@ -15,7 +15,7 @@ Then:
 ```bash
 git clone https://github.com/programme-lv/taskzip.git
 cd taskzip
-cargo install --path .
+cargo install --path . && taskzip completions fish > ~/.config/fish/completions/taskzip.fish
 ```
 
 Ensure `~/.cargo/bin` is on your `PATH`, then run:
@@ -28,12 +28,13 @@ taskzip check path/to/task
 
 ```text
 taskzip convert <dir-or-zip>
+taskzip configure [provider] [--api-key KEY] [--model MODEL]
 taskzip completions <shell>
 taskzip check <package>
 taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
-taskzip import lio2024 <src> <dest> [--year YEAR] [--stage STAGE] [--division DIVISION]... [--authors NAMES] [--skip-ai-import]
+taskzip import lio2024 <src> <dest> [--provider PROVIDER] [--year YEAR] [--stage STAGE] [--division DIVISION]... [--authors NAMES] [--skip-ai-import]
 taskzip verify <package>
 ```
 
@@ -58,7 +59,18 @@ Fish loads the file in new sessions. Run `source ~/.config/fish/completions/task
 
 The importer prompts for missing origin metadata. Stage choices are `school`, `municipal`, `national`, and `selection`. Age-group choices are `junior`, `senior`, and both; repeat `--division junior|senior` to select groups in scripts. Year accepts `YYYY` or an academic-year form such as `2025/2026`, which is stored as `2026`; valid years run from 1986 through the current year. Use the olympiad edition year even when a school or warm-up stage took place late in the previous calendar year. Authors are optional and comma-separated. `--year`, `--stage`, `--division`, and `--authors` avoid prompts in scripts.
 
-By default, import sends the single `teksts/*.typ` source and available image filenames to OpenAI for story, input, output, subtask descriptions, classification metadata, and per-solution score estimates. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections, subtask restrictions, difficulty, and a small set of classification tags are written to the package. Source prose is not translated or corrected. Set `OPENAI_API_KEY` in the environment or a `.env` file. `OPENAI_MODEL` overrides the unverified default `gpt-5.6-luna`; set it if that model is unavailable. Interactive AI import is not supported. Use `--skip-ai-import` for interactive tasks or an offline import that keeps the related TODOs.
+By default, import sends the single `teksts/*.typ` source and available image filenames to an AI provider for story, input, output, subtask descriptions, classification metadata, and per-solution score estimates. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections, subtask restrictions, difficulty, and a small set of classification tags are written to the package. Source prose is not translated or corrected.
+
+Supported providers are OpenAI (`openai`) and DeepSeek (`deepseek`). The provider is chosen from `--provider`, then `TASKZIP_PROVIDER`, then the config file default, then OpenAI. The API key is read from the provider environment variable (`OPENAI_API_KEY` or `DEEPSEEK_API_KEY`), which wins over the stored key, then from the config file. Models default to `gpt-5.6-luna` for OpenAI and `deepseek-flash` (DeepSeek V4.1 Flash) for DeepSeek; override with `OPENAI_MODEL`/`DEEPSEEK_MODEL` or the stored model.
+
+Run `taskzip configure <provider>` once to store a key and optional model in `$XDG_CONFIG_HOME/taskzip/config.toml` (default `~/.config/taskzip/config.toml`, created with mode 0600). Without `--api-key` the command prompts for the key without echoing it; with `--api-key` it is non-interactive. For example:
+
+```bash
+taskzip configure deepseek
+taskzip import lio2024 path/to/source path/to/dest
+```
+
+With `provider = "deepseek"` stored, the import above uses `deepseek-flash` with the stored key. A `.env` file is loaded too. Interactive AI import is not supported. Use `--skip-ai-import` for interactive tasks or an offline import that keeps the related TODOs.
 
 `verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set.
 

@@ -23,6 +23,7 @@ pub fn lio2024(
     src: &Path,
     dest: &Path,
     origin: LioOrigin,
+    provider: assist::Provider,
     skip_ai_import: bool,
     mut on_progress: impl FnMut(Event),
 ) -> Result<PathBuf> {
@@ -37,7 +38,14 @@ pub fn lio2024(
         bail!("dest already exists: {}", dest.display());
     }
     fs::create_dir_all(&dest)?;
-    write_task(&task, &source.root, &dest, skip_ai_import, &mut on_progress)?;
+    write_task(
+        &task,
+        &source.root,
+        &dest,
+        provider,
+        skip_ai_import,
+        &mut on_progress,
+    )?;
     report_result(&dest, start, &mut on_progress)?;
     Ok(dest)
 }
@@ -74,10 +82,11 @@ fn write_task(
     task: &LioTask,
     src: &Path,
     dest: &Path,
+    provider: assist::Provider,
     skip_ai_import: bool,
     on_progress: &mut impl FnMut(Event),
 ) -> Result<()> {
-    if let Err(err) = task.write(src, dest, skip_ai_import, on_progress) {
+    if let Err(err) = task.write(src, dest, provider, skip_ai_import, on_progress) {
         if let Err(cleanup) = fs::remove_dir_all(dest) {
             return Err(err.context(format!("cleanup {}: {cleanup}", dest.display())));
         }
@@ -245,10 +254,11 @@ impl LioTask {
         &self,
         src: &Path,
         dest: &Path,
+        provider: assist::Provider,
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<()> {
-        self.write_package(src, dest, skip_ai_import, on_progress)?;
+        self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
         self.write_code(src, dest, on_progress)?;
         stage(on_progress, 0, "write archive");
         self.write_archive(src, dest)?;
@@ -266,6 +276,7 @@ impl LioTask {
         &self,
         src: &Path,
         dest: &Path,
+        provider: assist::Provider,
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<()> {
@@ -275,7 +286,7 @@ impl LioTask {
         let ai = if skip_ai_import {
             None
         } else {
-            Some(self.import_ai(src, &images, on_progress)?)
+            Some(self.import_ai(src, &images, provider, on_progress)?)
         };
         let descriptions = ai.as_ref().map(|parts| parts.subtasks.as_slice());
         let metadata = ai.as_ref().map(|parts| &parts.metadata);
@@ -549,6 +560,7 @@ impl LioTask {
         &self,
         src: &Path,
         images: &[String],
+        provider: assist::Provider,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<assist::StatementParts> {
         stage(on_progress, 0, "import with AI");
@@ -558,6 +570,7 @@ impl LioTask {
         let source = read_typ_source(src)?;
         let solutions = read_solution_sources(src, &self.solutions)?;
         let parts = assist::import_statement(
+            provider,
             &source,
             images,
             self.subtask_count(),

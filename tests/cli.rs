@@ -80,6 +80,45 @@ fn generates_fish_completions() {
 }
 
 #[test]
+fn configure_stores_provider_settings() {
+    let dir = tempdir().unwrap();
+    bin()
+        .arg("configure")
+        .arg("deepseek")
+        .arg("--api-key")
+        .arg("sk-test")
+        .arg("--model")
+        .arg("deepseek-flash")
+        .env("XDG_CONFIG_HOME", dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: stored DeepSeek settings"));
+    let body = fs::read_to_string(dir.path().join("taskzip/config.toml")).unwrap();
+    assert!(body.contains("provider = \"deepseek\""));
+    assert!(body.contains("api_key = \"sk-test\""));
+    assert!(body.contains("model = \"deepseek-flash\""));
+}
+
+#[test]
+fn configure_keeps_existing_providers() {
+    let dir = tempdir().unwrap();
+    bin()
+        .args(["configure", "deepseek", "--api-key", "sk-deep"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .assert()
+        .success();
+    bin()
+        .args(["configure", "openai", "--api-key", "sk-open"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .assert()
+        .success();
+    let body = fs::read_to_string(dir.path().join("taskzip/config.toml")).unwrap();
+    assert!(body.contains("sk-deep"));
+    assert!(body.contains("sk-open"));
+    assert!(body.contains("provider = \"openai\""));
+}
+
+#[test]
 fn parse_range_helper() {
     let ids = taskzip::check::parse_range("003-005").unwrap();
     assert_eq!(ids, vec![3, 4, 5]);
@@ -193,6 +232,9 @@ fn import_lio2024_fixture() {
             "--authors",
             "A. Author, B. Author",
         ])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env("TASKZIP_PROVIDER", "openai")
+        .env_remove("DEEPSEEK_API_KEY")
         .env("OPENAI_API_KEY", "")
         .assert()
         .failure()
