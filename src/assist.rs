@@ -259,6 +259,22 @@ pub struct SolutionEstimate {
     pub subtasks: Vec<u32>,
 }
 
+/// A statement image available to the converter, with its intrinsic pixel
+/// size when it could be read from the file header. Unknown sizes are zero.
+#[derive(Clone, Debug)]
+pub struct StatementImage {
+    pub name: String,
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+impl StatementImage {
+    /// Return the pixel size when both dimensions are known.
+    pub fn pixel_size(&self) -> Option<(u32, u32)> {
+        (self.width_px > 0 && self.height_px > 0).then_some((self.width_px, self.height_px))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct TokenUsage {
     pub input: u64,
@@ -286,7 +302,7 @@ pub enum StatementEvent {
 pub fn import_statement(
     provider: Provider,
     typ_source: &str,
-    images: &[String],
+    images: &[StatementImage],
     subtask_count: usize,
     cpu_ms: u32,
     solutions: &[(String, String)],
@@ -849,11 +865,11 @@ fn strip_json_fence(raw: &str) -> &str {
     rest.strip_suffix("```").map(str::trim).unwrap_or(trimmed)
 }
 
-fn render_system(typ_source: &str, images: &[String]) -> Result<String> {
+fn render_system(typ_source: &str, images: &[StatementImage]) -> Result<String> {
     let values = [
         ("format_rules", FORMAT.trim()),
         ("typ_source", typ_source),
-        ("image_names", &image_list(images)),
+        ("image_details", &image_list(images)),
     ];
     render_template(SYSTEM, &values)
 }
@@ -928,13 +944,16 @@ fn render_template(template: &str, values: &[(&str, &str)]) -> Result<String> {
     Ok(out)
 }
 
-fn image_list(images: &[String]) -> String {
+fn image_list(images: &[StatementImage]) -> String {
     if images.is_empty() {
         return "(none)".into();
     }
     images
         .iter()
-        .map(|name| format!("- {name}"))
+        .map(|image| match image.pixel_size() {
+            Some((width, height)) => format!("- {} ({width}x{height} px)", image.name),
+            None => format!("- {} (pixel dimensions unknown)", image.name),
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -1134,5 +1153,46 @@ mod tests {
     fn prompts_hash_is_stable() {
         assert_eq!(prompts_hash(), prompts_hash());
         assert_eq!(prompts_hash().len(), 64);
+    }
+
+    #[test]
+    fn system_prompt_lists_image_dimensions() {
+        let images = [StatementImage {
+            name: "pacelam.png".into(),
+            width_px: 902,
+            height_px: 372,
+        }];
+        let prompt = render_system("typst", &images).unwrap();
+        assert!(prompt.contains("pacelam.png (902x372 px)"));
+    }
+
+    #[test]
+    fn system_prompt_marks_unknown_image_dimensions() {
+        let images = [StatementImage {
+            name: "pacelam.svg".into(),
+            width_px: 0,
+            height_px: 0,
+        }];
+        let prompt = render_system("typst", &images).unwrap();
+        assert!(prompt.contains("pacelam.svg (pixel dimensions unknown)"));
+    }
+
+    #[test]
+    fn subtasks_prompt_pins_the_example_row() {
+        let prompt = render_subtasks(5).unwrap();
+        assert!(prompt.contains("exactly 5 entries"));
+        assert!(prompt.contains("Always drop element 0"));
+        assert!(prompt.contains("Uzdevuma tekstā dotie trīs testi"));
+    }
+
+    #[test]
+    fn review_prompt_does_not_reask_known_conventions() {
+        for needle in [
+            "intentionally skipped",
+            "never copied to `width`",
+            "#hidden_text()",
+        ] {
+            assert!(REVIEW.contains(needle), "review prompt missing {needle:?}");
+        }
     }
 }

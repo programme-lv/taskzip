@@ -576,7 +576,7 @@ impl LioTask {
     fn import_ai(
         &self,
         src: &Path,
-        images: &[String],
+        images: &[assist::StatementImage],
         provider: assist::Provider,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<assist::StatementParts> {
@@ -609,7 +609,7 @@ impl LioTask {
     fn write_statement(
         &self,
         dest: &Path,
-        images: &[String],
+        images: &[assist::StatementImage],
         ai: Option<&assist::StatementParts>,
         skip: bool,
         on_progress: &mut impl FnMut(Event),
@@ -641,7 +641,7 @@ impl LioTask {
         src: &Path,
         dest: &Path,
         statement: &Path,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<assist::StatementImage>> {
         let mut images = Vec::new();
         for path in files_under(&src.join("teksts"))? {
             let Some(ext) = path
@@ -654,8 +654,15 @@ impl LioTask {
             let name = path.file_name().unwrap();
             match ext.as_str() {
                 "png" | "jpg" | "jpeg" | "webp" => {
-                    fs::copy(&path, statement.join(name))?;
-                    images.push(name.to_string_lossy().into_owned());
+                    let data = fs::read(&path)?;
+                    let (width_px, height_px) =
+                        crate::imagesize::dimensions(&data).unwrap_or((0, 0));
+                    fs::write(statement.join(name), &data)?;
+                    images.push(assist::StatementImage {
+                        name: name.to_string_lossy().into_owned(),
+                        width_px,
+                        height_px,
+                    });
                 }
                 "pdf" => {
                     let pdf_dir = dest.join("archive/statement-pdf");
@@ -665,7 +672,7 @@ impl LioTask {
                 _ => {}
             }
         }
-        images.sort();
+        images.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(images)
     }
 
@@ -775,9 +782,13 @@ fn report_statement_event(on_progress: &mut impl FnMut(Event), event: assist::St
     }
 }
 
-fn statement_files(dest: &Path, images: &[String]) -> Vec<String> {
+fn statement_files(dest: &Path, images: &[assist::StatementImage]) -> Vec<String> {
     let mut files = vec!["statement/lv.md".into()];
-    files.extend(images.iter().map(|name| format!("statement/{name}")));
+    files.extend(
+        images
+            .iter()
+            .map(|image| format!("statement/{}", image.name)),
+    );
     if dest.join("archive/statement-pdf/lv.pdf").is_file() {
         files.push("archive/statement-pdf/lv.pdf".into());
     }

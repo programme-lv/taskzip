@@ -4,6 +4,7 @@ pub mod config;
 pub mod convert;
 pub mod exec;
 pub mod generate;
+pub mod imagesize;
 pub mod import;
 pub mod meta;
 pub mod package;
