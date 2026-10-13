@@ -17,16 +17,16 @@ pub fn run(
     interactor: &Path,
     solution: &Path,
     input: &Path,
-    answer: Option<&Path>,
+    answer: &Path,
     limits: Limits,
     mem_mib: u32,
 ) -> Result<bool> {
     let work = TempDir::new()?;
     let (mut judge, mut contestant) = commands(interactor, solution)?;
-    judge.arg(input).arg(work.path().join("output.txt"));
-    if let Some(answer) = answer {
-        judge.arg(answer);
-    }
+    judge
+        .arg(input)
+        .arg(work.path().join("output.txt"))
+        .arg(answer);
     let diagnostics = work.path().join("interactor.stderr");
     judge.stderr(File::create(&diagnostics)?);
     contestant.stderr(File::create(work.path().join("solution.stderr"))?);
@@ -86,7 +86,7 @@ fn judge_verdict(exit: Exit, diagnostics: &Path) -> Result<bool> {
             "unsupported interactor exit {code}: {}",
             diagnostic(diagnostics)
         ),
-        None if exit.status.signal() == Some(libc::SIGPIPE) => Ok(false),
+        None if matches!(exit.status.signal(), Some(libc::SIGPIPE | libc::SIGXFSZ)) => Ok(false),
         None => bail!("interactor {}: {}", exit.status, diagnostic(diagnostics)),
     }
 }

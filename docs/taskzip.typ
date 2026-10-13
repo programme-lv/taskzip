@@ -291,14 +291,12 @@ tests/002o.txt
 ```
 
 Test indices MUST be three digits, starting at `001` and consecutive.
-Each input file MUST have a matching output file, except for interactive
-tasks, where the output file is optional independently for each test.
+Each input file MUST have a matching output file.
 The suffix `i` marks input and `o` marks output---the expected answer.
 `o` is used instead of `a` so that alphabetical listing places
 input before output for each index (`001i.txt` before `001o.txt`).
 
-A package MUST contain at least one official test input. Answer files MUST
-have a matching input.
+A package MUST contain at least one official test pair.
 Test files MUST follow the _text rules_: valid UTF-8, LF line
 endings, and no control characters other than tab and newline, nor bidi or
 zero-width formatting characters.
@@ -778,10 +776,8 @@ interactor <input-file> <output-file> [<answer-file>]
 ```
 
 The paths MUST refer to the current test input, a fresh writable scratch
-output file, and the jury answer when present. The answer argument MUST
-be omitted when the package has no answer for that test; tooling MUST NOT
-silently substitute an empty file. A supplied empty answer file remains
-distinct from an absent answer.
+output file, and that test's answer file. The answer file MAY be empty,
+but tooling MUST always pass its path rather than omitting the argument.
 The output path MUST NOT refer to the solution executable or package data.
 
 The solution runs as a separate process. Tooling MUST connect solution
@@ -796,7 +792,7 @@ With `registerInteraction(argc, argv)`, testlib maps:
 - `ouf` to stdin, carrying solution messages;
 - `cout` (or C stdout) to messages sent to the solution;
 - `tout` to the scratch output file;
-- `ans` to the optional answer file, unopened when absent.
+- `ans` to the answer file, which tooling always passes and which may be empty.
 
 `tout` MAY hold diagnostic data or an interaction record, but it is not
 the verdict channel and tooling MUST NOT infer acceptance from its contents.
@@ -814,8 +810,9 @@ The exit status is the authoritative verdict. With default testlib codes:
 
 TaskZip awards points through its test/subtask scoring rules; interactors
 MUST NOT use `quitp`, `_pc`, or redefine testlib exit-code macros.
-Interactor termination by `SIGPIPE` means the solution closed its receiving
-channel early and rejects the test. Other interactor crashes and
+Interactor termination by `SIGPIPE` or by a scratch-file size limit means
+the solution drove the exchange beyond its channel or scratch bounds and
+rejects the test. Other interactor crashes and
 resource-limit failures MUST be reported as judge/task errors when observed.
 stderr contains diagnostics only and MUST
 NOT determine the verdict for either process. The runner does not request
@@ -838,14 +835,16 @@ the interactor separately and document its own interactor and wall limits.
 
 === Jury answers
 
-Interactive answers are optional, problem-specific auxiliary data for the
-interactor: for example an independently computed optimum or a reference
-witness. They are not necessarily a solution's stdout or a transcript.
+Interactive answers are problem-specific auxiliary data for the interactor:
+for example an independently computed optimum or a reference witness.
+They are not necessarily a solution's stdout or a transcript.
 Many interactors can judge using only the hidden input and the live exchange
-and therefore need no answer file. An interactor that requires `ans` MUST
-be packaged with answers for every test on which it reads that stream.
-Generation of interactive jury answers is not defined by this contract;
-`taskzip tests answers` remains unsupported for interactive tasks.
+and ignore `ans` entirely; their answer files are then empty.
+An interactor that reads `ans` requires meaningful answers for every test
+on which it reads that stream.
+Because an answer is a deterministic function of its test input, answers
+can be computed from inputs with a jury answer program
+(`testspec/answer.cpp`, @sec:testspec).
 
 === Statements and examples
 
@@ -930,6 +929,7 @@ If present, `testspec/` SHOULD use this layout:
 testspec/
   generator.cpp
   validator.cpp
+  answer.cpp
   tests.txt
   manual/
     <fname>.txt
@@ -939,6 +939,14 @@ testspec/
 `testspec/validator.cpp` is the input validator, typically written with
 `testlib.h`.
 Both files are optional.
+
+`testspec/answer.cpp` is an optional jury answer program for interactive
+tasks (@sec:interactor).
+It MUST read one official test input from standard input and write that
+test's answer to standard output, and it MAY use `testlib.h`.
+It MUST be deterministic: the same input MUST always produce the same answer.
+Tooling MUST NOT treat it as a registered solution or apply solution
+resource limits to it.
 
 `testspec/tests.txt` is an ordered manifest describing how the official test
 inputs were assembled.
@@ -1036,7 +1044,9 @@ Implementations MAY expose a flag to bypass the cache.
 test inputs and write matching answer files.
 Implementations SHOULD use a registered full-score solution by default and MAY
 expose a flag to select a specific solution file.
-For interactive tasks, this command SHOULD be rejected.
+For interactive tasks, this command SHOULD run `testspec/answer.cpp` when
+present (@sec:testspec); otherwise it SHOULD write empty answer files,
+because interactive answers are required but may be empty.
 
 `taskzip tests validate` SHOULD compile and run `testspec/validator.cpp`, if
 present, against official or generated test inputs.
@@ -1096,7 +1106,7 @@ Other sections cite limits by that identifier and refer to @tbl:limits.
     table.hline(stroke: 0.5pt),
     [#text(size: 8.5pt, font: "DejaVu Sans Mono")[tests-count]],
       [Official tests],
-      [$<=$ 9999 inputs, with answers as required by task type],
+      [$<=$ 9999 input/output pairs],
     table.hline(stroke: 0.5pt),
     [#text(size: 8.5pt, font: "DejaVu Sans Mono")[test-file-size]],
       [Single test input or output file],
@@ -1219,6 +1229,12 @@ Subtasks whose input data is published in the statement set
 
 Import tooling for LIO source formats SHOULD renumber tests so that every
 group covers a consecutive test range, as required by @sec:scoring.
+
+LIO communication tasks map to `testing.type = "interactor"` with an
+`interactor.cpp`. Their source test archives often carry empty answer files
+and no interaction traces, so import tooling SHOULD write an answer file for
+every test (empty when the source has none), leave `examples/` for the
+author, and not mark subtasks with `vis_input`.
 
 = Testlib overview <app:testlib>
 

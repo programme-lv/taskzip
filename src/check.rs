@@ -194,14 +194,11 @@ pub fn test_indices(pkg: &Package) -> Result<Vec<u32>> {
             bail!("tests not consecutive at {id:03}");
         }
         let o = format!("tests/{id:03}o.txt");
-        let has_answer = pkg.files.contains(&o);
-        if !has_answer && pkg.meta.testing.kind != "interactor" {
+        if !pkg.files.contains(&o) {
             bail!("missing {o}");
         }
         check_test_file(pkg, &format!("tests/{id:03}i.txt"), true)?;
-        if has_answer {
-            check_test_file(pkg, &o, false)?;
-        }
+        check_test_file(pkg, &o, false)?;
     }
     Ok(ids)
 }

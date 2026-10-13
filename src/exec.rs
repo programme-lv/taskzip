@@ -10,6 +10,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 const TESTLIB_H: &[u8] = include_bytes!("../assets/testlib.h");
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct SolutionRun {
     pub fname: String,
@@ -87,7 +88,7 @@ pub fn generate_answers(
     solution: Option<&str>,
 ) -> Result<AnswerReport> {
     if pkg.meta.testing.kind == "interactor" {
-        bail!("answers not supported for interactor");
+        return generate_interactive_answers(pkg, input_dir, out_dir, solution);
     }
     run::ensure_time()?;
     let fname = model_solution(pkg, solution)?;
@@ -114,6 +115,62 @@ pub fn generate_answers(
         solution: fname,
         written,
     })
+}
+
+fn generate_interactive_answers(
+    pkg: &Package,
+    input_dir: &Path,
+    out_dir: &Path,
+    solution: Option<&str>,
+) -> Result<AnswerReport> {
+    if solution.is_some() {
+        bail!("--solution not supported for interactive tasks");
+    }
+    let work = TempDir::new()?;
+    let src = pkg.root.join("testspec/answer.cpp");
+    let bin = if src.is_file() {
+        run::ensure_time()?;
+        Some(compile_cpp(&src, &work.path().join("answer"), &[], true)?)
+    } else {
+        None
+    };
+    let written = write_answers(bin.as_deref(), input_dir, out_dir)?;
+    let solution = if bin.is_some() {
+        "testspec/answer.cpp"
+    } else {
+        "empty answers"
+    };
+    Ok(AnswerReport {
+        solution: solution.into(),
+        written,
+    })
+}
+
+fn write_answers(bin: Option<&Path>, input_dir: &Path, out_dir: &Path) -> Result<u32> {
+    fs::create_dir_all(out_dir)?;
+    let limits = Limits {
+        wall: ANSWER_TIMEOUT,
+        cpu: None,
+    };
+    let mut written = 0;
+    for (id, input) in input_files(input_dir)? {
+        let answer = match bin {
+            Some(bin) => {
+                let out = run::run(bin, &[], Some(input), limits)?;
+                if run_failed(&out, limits) {
+                    bail!(
+                        "answer program failed on {id:03}: {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                }
+                out.stdout
+            }
+            None => Vec::new(),
+        };
+        fs::write(out_dir.join(format!("{id:03}o.txt")), answer)?;
+        written += 1;
+    }
+    Ok(written)
 }
 
 fn model_solution(pkg: &Package, solution: Option<&str>) -> Result<String> {
@@ -298,14 +355,7 @@ fn run_interactor(
 ) -> Result<bool> {
     #[cfg(target_os = "linux")]
     {
-        crate::interactive::run(
-            interactor,
-            solution,
-            input,
-            answer.is_file().then_some(answer),
-            limits,
-            mem_mib,
-        )
+        crate::interactive::run(interactor, solution, input, answer, limits, mem_mib)
     }
     #[cfg(not(target_os = "linux"))]
     bail!("interactive execution requires Linux")

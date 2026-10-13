@@ -18,7 +18,8 @@ int main(int argc, char **argv) {
     if (mode == "accept-crash") quitf(_ok, "accepted too early");
     int actual = ouf.readInt();
     if (mode == "judge-hang") while (true) std::this_thread::sleep_for(std::chrono::seconds(1));
-    int expected = argc >= 4 ? ans.readInt() : n + 1;
+    int expected = n + 1;
+    if (!ans.seekEof()) expected = ans.readInt();
     tout << actual << std::endl;
     if (actual != expected) quitf(_wa, "expected %d, got %d", expected, actual);
     if (mode == "close-output") {

@@ -36,20 +36,18 @@ fn compile(name: &str, dir: &Path) -> PathBuf {
     output
 }
 
-fn exchange(mode: &str, answer: Option<&str>, wall: u64) -> anyhow::Result<bool> {
+fn exchange(mode: &str, answer: &str, wall: u64) -> anyhow::Result<bool> {
     let (_, judge, solution) = programs();
     let dir = TempDir::new()?;
     let input = dir.path().join("input.txt");
     let answer_path = dir.path().join("answer.txt");
     fs::write(&input, format!("{mode} 7\n"))?;
-    if let Some(text) = answer {
-        fs::write(&answer_path, text)?;
-    }
+    fs::write(&answer_path, answer)?;
     taskzip::interactive::run(
         judge,
         solution,
         &input,
-        answer.map(|_| answer_path.as_path()),
+        &answer_path,
         Limits {
             wall: Duration::from_millis(wall),
             cpu: Some(Duration::from_millis(100)),
@@ -59,16 +57,12 @@ fn exchange(mode: &str, answer: Option<&str>, wall: u64) -> anyhow::Result<bool>
 }
 
 #[test]
-fn testlib_roundtrip_and_optional_answers() {
+fn testlib_roundtrip_and_empty_answers() {
     for mode in ["normal", "stderr", "judge-work", "close-output"] {
-        assert!(exchange(mode, None, 3000).unwrap(), "{mode}");
+        assert!(exchange(mode, "", 3000).unwrap(), "{mode}");
     }
-    assert!(exchange("normal", Some("8\n"), 3000).unwrap());
-    assert!(!exchange("normal", Some("42\n"), 3000).unwrap());
-    assert!(exchange("normal", Some(""), 3000)
-        .unwrap_err()
-        .to_string()
-        .contains("interactor failure"));
+    assert!(exchange("normal", "8\n", 3000).unwrap());
+    assert!(!exchange("normal", "42\n", 3000).unwrap());
 }
 
 #[test]
@@ -84,10 +78,10 @@ fn contestant_failures_and_deadlocks_terminate() {
         "memory",
         "close-input",
     ] {
-        assert!(!exchange(mode, None, 200).unwrap(), "{mode}");
+        assert!(!exchange(mode, "", 200).unwrap(), "{mode}");
     }
-    assert!(!exchange("spin", None, 3000).unwrap());
-    assert!(!exchange("cpu", None, 3000).unwrap());
+    assert!(!exchange("spin", "", 3000).unwrap());
+    assert!(!exchange("cpu", "", 3000).unwrap());
     assert!(start.elapsed() < Duration::from_secs(6));
 }
 
@@ -99,16 +93,16 @@ fn judge_errors_are_not_wrong_answers() {
         ("judge-signal", "signal"),
         ("judge-hang", "interactor wall timeout"),
     ] {
-        let error = exchange(mode, None, 200).unwrap_err().to_string();
+        let error = exchange(mode, "", 200).unwrap_err().to_string();
         assert!(error.contains(message), "{mode}: {error}");
     }
 }
 
 #[test]
-fn verify_interactive_package_without_answer_generation() {
+fn verify_interactive_package_without_answer_program() {
     let dir = TempDir::new().unwrap();
     let task = dir.path().join("interactive");
-    write_package(&task);
+    write_package(&task, false);
     let output = Command::new(env!("CARGO_BIN_EXE_taskzip"))
         .arg("verify")
         .arg(&task)
@@ -120,9 +114,63 @@ fn verify_interactive_package_without_answer_generation() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("solutions: 1"));
+    let answers = Command::new(env!("CARGO_BIN_EXE_taskzip"))
+        .args(["tests", "answers", "--write"])
+        .arg(&task)
+        .output()
+        .unwrap();
+    assert!(
+        answers.status.success(),
+        "{}",
+        String::from_utf8_lossy(&answers.stderr)
+    );
+    assert!(String::from_utf8_lossy(&answers.stdout).contains("wrote 3 answers"));
+    assert_eq!(fs::read_to_string(task.join("tests/002o.txt")).unwrap(), "");
+    let verify = Command::new(env!("CARGO_BIN_EXE_taskzip"))
+        .arg("verify")
+        .arg(&task)
+        .output()
+        .unwrap();
+    assert!(
+        verify.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verify.stderr)
+    );
 }
 
-fn write_package(task: &Path) {
+#[test]
+fn answers_from_testspec_answer_program() {
+    let dir = TempDir::new().unwrap();
+    let task = dir.path().join("interactive");
+    write_package(&task, true);
+    let output = Command::new(env!("CARGO_BIN_EXE_taskzip"))
+        .args(["tests", "answers", "--write"])
+        .arg(&task)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("wrote 3 answers"));
+    assert_eq!(
+        fs::read_to_string(task.join("tests/003o.txt")).unwrap(),
+        "8\n"
+    );
+    let verify = Command::new(env!("CARGO_BIN_EXE_taskzip"))
+        .arg("verify")
+        .arg(&task)
+        .output()
+        .unwrap();
+    assert!(
+        verify.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verify.stderr)
+    );
+}
+
+fn write_package(task: &Path, answer_program: bool) {
     for subdir in ["tests", "solutions", "statement"] {
         fs::create_dir_all(task.join(subdir)).unwrap();
     }
@@ -136,10 +184,20 @@ fn write_package(task: &Path) {
         task.join("solutions/main.cpp"),
     )
     .unwrap();
+    if answer_program {
+        fs::create_dir_all(task.join("testspec")).unwrap();
+        fs::copy(
+            "tests/interactive/answer.cpp",
+            task.join("testspec/answer.cpp"),
+        )
+        .unwrap();
+    }
     fs::write(task.join("tests/001i.txt"), "normal 7\n").unwrap();
+    fs::write(task.join("tests/001o.txt"), "").unwrap();
     fs::write(task.join("tests/002i.txt"), "normal 9\n").unwrap();
     fs::write(task.join("tests/002o.txt"), "10\n").unwrap();
     fs::write(task.join("tests/003i.txt"), "wrong 7\n").unwrap();
+    fs::write(task.join("tests/003o.txt"), "").unwrap();
     fs::write(task.join("statement/en.md"), "Exchange messages.\n").unwrap();
     fs::write(task.join("task.toml"), "taskzip = 1\nid = 'interactive'\n[name]\nen = 'Interactive'\n[testing]\ntype = 'interactor'\ncpu_ms = 1000\nmem_mib = 64\n[[solutions]]\nfname = 'main.cpp'\nscore = 2\n").unwrap();
 }
@@ -159,10 +217,15 @@ fn rejected_exchange_kills_solution_descendants() {
         wall: Duration::from_secs(2),
         cpu: Some(Duration::from_secs(1)),
     };
-    assert!(
-        !taskzip::interactive::run(&judge, &solution, Path::new("unused"), None, limits, 64)
-            .unwrap()
-    );
+    assert!(!taskzip::interactive::run(
+        &judge,
+        &solution,
+        Path::new("unused"),
+        Path::new("unused"),
+        limits,
+        64
+    )
+    .unwrap());
     assert_stopped(&fs::read_to_string(pid_file).unwrap());
 }
 
@@ -179,6 +242,30 @@ fn assert_stopped(pid: &str) {
 }
 
 #[test]
+fn interactor_scratch_limit_rejects_test() {
+    let dir = TempDir::new().unwrap();
+    let judge = script(
+        dir.path(),
+        "judge",
+        "exec head -c 20000000 /dev/zero > \"$2\"\n",
+    );
+    let solution = script(dir.path(), "solution", "sleep 30\n");
+    let limits = Limits {
+        wall: Duration::from_secs(5),
+        cpu: Some(Duration::from_secs(2)),
+    };
+    assert!(!taskzip::interactive::run(
+        &judge,
+        &solution,
+        Path::new("unused"),
+        Path::new("unused"),
+        limits,
+        64
+    )
+    .unwrap());
+}
+
+#[test]
 fn solution_spawn_failure_cleans_up_judge() {
     let dir = TempDir::new().unwrap();
     let judge = script(dir.path(), "judge", "read message\n");
@@ -190,7 +277,7 @@ fn solution_spawn_failure_cleans_up_judge() {
         &judge,
         &dir.path().join("missing"),
         Path::new("unused"),
-        None,
+        Path::new("unused"),
         limits,
         64,
     )
