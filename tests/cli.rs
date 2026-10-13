@@ -343,6 +343,84 @@ fn write_lio_zip(path: &std::path::Path) {
     zip.finish().unwrap();
 }
 
+#[test]
+fn import_lio2024_interactive_fixture() {
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("atmini");
+    let dest_parent = dir.path().join("out");
+    for sub in ["testi", "teksts", "risin", "riki"] {
+        fs::create_dir_all(src.join(sub)).unwrap();
+    }
+    fs::create_dir_all(&dest_parent).unwrap();
+    fs::write(
+        src.join("task.yaml"),
+        "name: 'atmini'\ntitle: 'Guessing'\ntime_limit: 0.4\nmemory_limit: 256\ntests_archive: './testi/tests.zip'\ntask_type: \"Communication\"\ninteractor: './riki/interactor.cpp'\nsubtask_points: [0, 100]\ntests_groups:\n  - groups: 0\n    points: 0\n    public: true\n    subtask: 0\n  - groups: 1\n    points: 50\n    public: true\n    subtask: 1\n  - groups: 2\n    points: 50\n    public: true\n    subtask: 1\n",
+    )
+    .unwrap();
+    fs::write(
+        src.join("teksts/tiny.typ"),
+        "#print_example(\"atmini.i00a\", output: false, interactive: true)\n",
+    )
+    .unwrap();
+    fs::write(src.join("risin/ok.cpp"), "int main(){}\n").unwrap();
+    fs::write(
+        src.join("riki/interactor.cpp"),
+        "#include \"testlib.h\"\nint main(){}\n",
+    )
+    .unwrap();
+    fs::write(src.join("riki/testlib.h"), "// testlib\n").unwrap();
+    write_interactive_zip(&src.join("testi/tests.zip"));
+    bin()
+        .arg("import")
+        .arg("lio2024")
+        .arg(&src)
+        .arg(&dest_parent)
+        .arg("--skip-ai-import")
+        .args([
+            "--year",
+            "2026",
+            "--stage",
+            "national",
+            "--division",
+            "senior",
+            "--authors",
+            "",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: imported lio2024"));
+    let dest = dest_parent.join("lio2026atmini");
+    bin().arg("check").arg(&dest).assert().success();
+    let task_toml = fs::read_to_string(dest.join("task.toml")).unwrap();
+    assert!(task_toml.contains("type = \"interactor\""));
+    assert!(task_toml.contains("vis_input = false"));
+    assert!(dest.join("interactor.cpp").is_file());
+    assert!(!dest.join("checker.cpp").exists());
+    assert!(!dest.join("examples").exists());
+    assert!(dest.join("tests/001i.txt").is_file());
+    assert_eq!(fs::read_to_string(dest.join("tests/001o.txt")).unwrap(), "");
+    assert_eq!(fs::read_to_string(dest.join("tests/002o.txt")).unwrap(), "");
+    let readme = fs::read_to_string(dest.join("readme.md")).unwrap();
+    assert!(readme.contains("example traces"));
+}
+
+fn write_interactive_zip(path: &std::path::Path) {
+    let file = fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default();
+    for (name, body) in [
+        ("atmini.i00a", "2 36\r\n"),
+        ("atmini.i01a", "3 123\r\n"),
+        ("atmini.i02a", "4 1234\r\n"),
+        ("atmini.o00a", ""),
+        ("atmini.o01a", ""),
+    ] {
+        zip.start_file(name, opts).unwrap();
+        zip.write_all(body.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
 fn write_source_zip(src: &std::path::Path, path: &std::path::Path) {
     let file = fs::File::create(path).unwrap();
     let mut zip = zip::ZipWriter::new(file);

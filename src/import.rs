@@ -223,7 +223,6 @@ struct LioTest {
 impl LioTask {
     fn read(src: &Path, origin: LioOrigin) -> Result<Self> {
         let raw = RawYaml::read(&src.join("task.yaml"))?;
-        let tests = read_lio_tests(&src.join(&raw.tests_archive))?;
         let testing_kind = if raw.interactor.is_some() {
             "interactor"
         } else if raw.checker.is_some() {
@@ -231,6 +230,8 @@ impl LioTask {
         } else {
             "simple"
         };
+        let interactive = testing_kind == "interactor";
+        let tests = read_lio_tests(&src.join(&raw.tests_archive), interactive)?;
         Ok(Self {
             id: format!("lio{}{}", origin.year, raw.name.to_lowercase()),
             title: raw.title,
@@ -245,7 +246,7 @@ impl LioTask {
             groups: raw.groups,
             tests,
             solutions: cpp_solutions(src)?,
-            visible_input: has_visible_input(src)?,
+            visible_input: !interactive && has_visible_input(src)?,
             origin,
         })
     }
@@ -268,7 +269,12 @@ impl LioTask {
             1,
             format!("archive/original/ ({} files)", archive.files),
         );
-        report_todos(on_progress, !skip_ai_import, review.as_ref());
+        report_todos(
+            on_progress,
+            !skip_ai_import,
+            review.as_ref(),
+            self.testing_kind == "interactor",
+        );
         Ok(())
     }
 
@@ -302,7 +308,8 @@ impl LioTask {
         detail(on_progress, 1, self.tests_summary());
         self.write_statement(dest, &images, ai.as_ref(), skip_ai_import, on_progress)?;
         let review = ai.as_ref().map(|parts| &parts.review);
-        if !todo_items(!skip_ai_import, review).is_empty() {
+        let interactive = self.testing_kind == "interactor";
+        if !todo_items(!skip_ai_import, review, interactive).is_empty() {
             stage(on_progress, 0, "write readme");
             self.write_readme(dest, !skip_ai_import, review)?;
             detail(on_progress, 1, "readme.md");
@@ -335,7 +342,7 @@ impl LioTask {
 
     fn summary(&self) -> String {
         let official = self.tests.iter().filter(|t| t.group != 0).count();
-        let examples = self.tests.len() - official;
+        let examples = self.example_count();
         let groups = self.groups.iter().filter(|g| g.id != 0).count();
         format!(
             "{official} tests, {examples} examples, {groups} groups, {} subtasks, {} solutions, {}",
@@ -347,8 +354,16 @@ impl LioTask {
 
     fn tests_summary(&self) -> String {
         let official = self.tests.iter().filter(|t| t.group != 0).count();
-        let examples = self.tests.len() - official;
+        let examples = self.example_count();
         format!("tests/ ({official} pairs), examples/ ({examples} pairs), tgroups.txt")
+    }
+
+    fn example_count(&self) -> usize {
+        if self.testing_kind == "interactor" {
+            0
+        } else {
+            self.tests.iter().filter(|t| t.group == 0).count()
+        }
     }
 
     fn write_meta(
@@ -507,7 +522,7 @@ impl LioTask {
         review: Option<&assist::ImportReview>,
     ) -> Result<()> {
         let mut text = String::from("## TODO\n\n");
-        for item in todo_items(ai_imported, review) {
+        for item in todo_items(ai_imported, review, self.testing_kind == "interactor") {
             text.push_str(&format!("- [ ] {item}\n"));
         }
         fs::write(dest.join("readme.md"), text)?;
@@ -515,12 +530,16 @@ impl LioTask {
     }
 
     fn write_tests(&self, dest: &Path) -> Result<()> {
+        let interactive = self.testing_kind == "interactor";
         let mut official = 1;
         let mut examples = 1;
         for t in &self.tests {
             if t.group == 0 {
-                write_pair(dest, "examples", examples, &t.input, &t.answer)?;
-                examples += 1;
+                // Trace files for interactive examples cannot be derived here.
+                if !interactive {
+                    write_pair(dest, "examples", examples, &t.input, &t.answer)?;
+                    examples += 1;
+                }
             } else {
                 write_pair(dest, "tests", official, &t.input, &t.answer)?;
                 official += 1;
@@ -582,7 +601,7 @@ impl LioTask {
     ) -> Result<assist::StatementParts> {
         stage(on_progress, 0, "import with AI");
         if self.testing_kind == "interactor" {
-            bail!("interactive AI import unsupported");
+            bail!("interactive AI import unsupported; use --skip-ai-import");
         }
         let source = read_typ_source(src)?;
         let solutions = read_solution_sources(src, &self.solutions)?;
@@ -803,13 +822,20 @@ fn file_list(files: &[String]) -> String {
     }
 }
 
-fn todo_items(ai_imported: bool, review: Option<&assist::ImportReview>) -> Vec<String> {
+fn todo_items(
+    ai_imported: bool,
+    review: Option<&assist::ImportReview>,
+    interactive: bool,
+) -> Vec<String> {
     let mut items: Vec<String> = Vec::new();
     if !ai_imported {
         items.push("port statement from `archive/original/teksts/` to `statement/lv.md`".into());
         items.push("replace placeholder subtask descriptions".into());
         items.push("review imported solution scores".into());
         items.push("set task difficulty and classification tags".into());
+    }
+    if interactive {
+        items.push("author interactive example traces under `examples/`".into());
     }
     if let Some(review) = review {
         for tag in &review.dropped_tags {
@@ -843,8 +869,9 @@ fn report_todos(
     on_progress: &mut impl FnMut(Event),
     ai_imported: bool,
     review: Option<&assist::ImportReview>,
+    interactive: bool,
 ) {
-    let items = todo_items(ai_imported, review);
+    let items = todo_items(ai_imported, review, interactive);
     if items.is_empty() {
         return;
     }
@@ -996,7 +1023,7 @@ fn yaml_u32(n: &serde_yaml::Number) -> Result<u32> {
         .ok_or_else(|| anyhow::anyhow!("expected non-negative integer"))
 }
 
-fn read_lio_tests(path: &Path) -> Result<Vec<LioTest>> {
+fn read_lio_tests(path: &Path, interactive: bool) -> Result<Vec<LioTest>> {
     let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut zip = ZipArchive::new(file).context("read tests zip")?;
     type Pair = (Option<Vec<u8>>, Option<Vec<u8>>);
@@ -1026,12 +1053,16 @@ fn read_lio_tests(path: &Path) -> Result<Vec<LioTest>> {
     entries
         .into_iter()
         .map(|((group, no_in_group), (input, answer))| {
+            let answer = match answer {
+                Some(answer) => answer,
+                None if interactive => Vec::new(),
+                None => bail!("missing answer {group}:{no_in_group}"),
+            };
             Ok(LioTest {
                 group,
                 input: input
                     .ok_or_else(|| anyhow::anyhow!("missing input {group}:{no_in_group}"))?,
-                answer: answer
-                    .ok_or_else(|| anyhow::anyhow!("missing answer {group}:{no_in_group}"))?,
+                answer,
             })
         })
         .collect()
@@ -1213,7 +1244,7 @@ mod tests {
             warnings: vec!["review pass unparsed: x".into()],
             ..Default::default()
         };
-        let items = todo_items(true, Some(&review));
+        let items = todo_items(true, Some(&review), false);
         for needle in [
             "bogus",
             "lerp",
@@ -1232,7 +1263,10 @@ mod tests {
     #[test]
     fn clean_ai_import_needs_no_readme() {
         let review = ImportReview::default();
-        assert!(todo_items(true, Some(&review)).is_empty());
-        assert!(!todo_items(false, None).is_empty());
+        assert!(todo_items(true, Some(&review), false).is_empty());
+        assert!(!todo_items(false, None, false).is_empty());
+        assert!(todo_items(false, None, true)
+            .iter()
+            .any(|item| item.contains("example traces")));
     }
 }
