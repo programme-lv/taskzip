@@ -31,9 +31,13 @@ pub fn validate_tests(pkg: &Package, quiet: bool) -> Result<()> {
     }
     let work = TempDir::new()?;
     let bin = compile_cpp(&validator, &work.path().join("validator"), &[], true)?;
+    let subtasks = score::test_subtasks(pkg)?;
     for id in test_indices(pkg)? {
         let input = pkg.root.join(format!("tests/{id:03}i.txt"));
         let mut cmd = Command::new(&bin);
+        if let Some(subtask) = subtasks.get(&id) {
+            cmd.arg("--group").arg(subtask.to_string());
+        }
         cmd.stdin(fs::File::open(&input)?);
         if quiet {
             cmd.stdout(Stdio::null()).stderr(Stdio::null());

@@ -1,8 +1,9 @@
 use crate::check::{parse_range, test_indices};
-use crate::meta::TaskMeta;
+use crate::meta::{Subtask, TaskMeta};
 use crate::package::Package;
 use anyhow::{bail, Result};
 use regex::Regex;
+use std::collections::BTreeMap;
 
 #[derive(Clone)]
 pub struct TestGroup {
@@ -103,6 +104,41 @@ pub fn task_total_pkg(pkg: &Package) -> Result<u32> {
         }
     }
     Ok(total)
+}
+
+/// Maps each official test to its 1-based containing subtask index.
+pub fn test_subtasks(pkg: &Package) -> Result<BTreeMap<u32, u32>> {
+    let groups = if pkg.meta.subtasks.iter().any(|st| st.groups.is_some()) {
+        read_tgroups(pkg)?
+    } else {
+        Vec::new()
+    };
+    let mut out = BTreeMap::new();
+    for (i, st) in pkg.meta.subtasks.iter().enumerate() {
+        for id in subtask_tests(st, &groups)? {
+            out.insert(id, i as u32 + 1);
+        }
+    }
+    Ok(out)
+}
+
+fn subtask_tests(subtask: &Subtask, groups: &[TestGroup]) -> Result<Vec<u32>> {
+    if let Some(spec) = &subtask.tests {
+        return parse_range(spec);
+    }
+    let spec = subtask
+        .groups
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("subtask without tests or groups"))?;
+    let mut tests = Vec::new();
+    for id in parse_range(spec)? {
+        let group = groups
+            .iter()
+            .find(|g| g.id == id)
+            .ok_or_else(|| anyhow::anyhow!("missing test group {id:02}"))?;
+        tests.extend(parse_range(&group.tests)?);
+    }
+    Ok(tests)
 }
 
 pub fn read_tgroups(pkg: &Package) -> Result<Vec<TestGroup>> {

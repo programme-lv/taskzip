@@ -437,6 +437,53 @@ fn write_source_zip(src: &std::path::Path, path: &std::path::Path) {
     zip.finish().unwrap();
 }
 
+#[test]
+fn validate_passes_subtask_group() {
+    if std::process::Command::new("g++")
+        .arg("--version")
+        .status()
+        .is_err()
+    {
+        return;
+    }
+    let dir = tempdir().unwrap();
+    let task = dir.path().join("groups");
+    for sub in ["tests", "testspec", "statement"] {
+        fs::create_dir_all(task.join(sub)).unwrap();
+    }
+    fs::write(task.join("tests/001i.txt"), "1\n").unwrap();
+    fs::write(task.join("tests/001o.txt"), "1\n").unwrap();
+    fs::write(task.join("tests/002i.txt"), "2\n").unwrap();
+    fs::write(task.join("tests/002o.txt"), "2\n").unwrap();
+    fs::write(task.join("statement/en.md"), "Story.\n").unwrap();
+    fs::write(
+        task.join("testspec/validator.cpp"),
+        r#"#include "testlib.h"
+int main(int argc, char** argv) {
+    registerValidation(argc, argv);
+    int n = inf.readInt(1, 2, "n");
+    inf.readEoln();
+    inf.readEof();
+    if (validator.group() != std::to_string(n)) {
+        quitf(_fail, "group %s for test %d", validator.group().c_str(), n);
+    }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        task.join("task.toml"),
+        "taskzip = 1\nid = 'groups'\n[name]\nen = 'Groups'\n[testing]\ntype = 'simple'\ncpu_ms = 1000\nmem_mib = 64\n[[subtasks]]\npoints = 1\ntests = \"001-001\"\n[subtasks.description]\nen = 'One'\n[[subtasks]]\npoints = 1\ntests = \"002-002\"\n[subtasks.description]\nen = 'Two'\n",
+    )
+    .unwrap();
+    bin()
+        .args(["tests", "validate"])
+        .arg(&task)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok: validator passed"));
+}
+
 fn copy_dir(src: &str, dst: &std::path::Path) {
     for entry in fs::read_dir(src).unwrap() {
         let entry = entry.unwrap();
