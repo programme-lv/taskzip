@@ -67,8 +67,6 @@ metadata ready for import, archival, or publication.
 It is not a development workspace for a task still being authored.
 A package MAY still carry its test-generation sources under `testspec/`
 and design notes in `readme.md`.
-Recommended tooling commands are described in @sec:tooling-cli, but the
-on-disk format does not depend on them.
 
 == Package layout
 
@@ -772,7 +770,7 @@ decide whether the solution passed. There is no second checker of the
 interaction log. Tooling MUST invoke the compiled interactor as:
 
 ```text
-interactor <input-file> <output-file> [<answer-file>]
+interactor <input-file> <output-file> <answer-file>
 ```
 
 The paths MUST refer to the current test input, a fresh writable scratch
@@ -939,12 +937,16 @@ testspec/
 `testspec/validator.cpp` is the input validator, typically written with
 `testlib.h`.
 Both files are optional.
+Tooling SHOULD run the validator against official test inputs, passing the
+containing subtask's 1-based index as `--group <index>`.
 
 `testspec/answer.cpp` is an optional jury answer program for interactive
 tasks (@sec:interactor).
 It MUST read one official test input from standard input and write that
 test's answer to standard output, and it MAY use `testlib.h`.
 It MUST be deterministic: the same input MUST always produce the same answer.
+Tooling that generates interactive answers SHOULD run it when it is present,
+and write empty answer files otherwise.
 Tooling MUST NOT treat it as a registered solution or apply solution
 resource limits to it.
 
@@ -1009,59 +1011,6 @@ unsanitized SVG, unknown fields in core tables, or inconsistent subtask
 scoring (@sec:scoring).
 The `testspec-files` limit is formula-based: at most `tests-count + 200`
 files under `testspec/`.
-
-== Suggested executable <sec:tooling-cli>
-
-Tools SHOULD expose a command named `taskzip` when they provide a command-line
-interface for this format.
-This specification recommends the following subcommands, but does not require
-their exact flags, build system, sandboxing model, or output filenames:
-
-```text
-taskzip check <package>
-taskzip tests generate <package>
-taskzip tests answers <package>
-taskzip tests validate <package>
-taskzip import lio2024 <src> <dest>
-taskzip verify <package>
-```
-
-`taskzip check` SHOULD perform package conformance checking without compiling
-or running task-specific programs.
-
-`taskzip tests generate` SHOULD use `testspec/tests.txt` to assemble candidate
-official test inputs from generated and manual cases.
-Manifest line *N* SHOULD produce test `NNNi.txt`.
-It SHOULD NOT overwrite `tests/` unless the user explicitly requests that.
-
-`taskzip tests generate` MAY cache assembled inputs.
-The cache key for a manifest line SHOULD cover the line text and its source
-material (the generator source for `g` lines, the manual file for `m`
-lines), so a line is regenerated only when either changes.
-Implementations MAY expose a flag to bypass the cache.
-
-`taskzip tests answers` SHOULD run a model solution on generated or official
-test inputs and write matching answer files.
-Implementations SHOULD use a registered full-score solution by default and MAY
-expose a flag to select a specific solution file.
-For interactive tasks, this command SHOULD run `testspec/answer.cpp` when
-present (@sec:testspec); otherwise it SHOULD write empty answer files,
-because interactive answers are required but may be empty.
-
-`taskzip tests validate` SHOULD compile and run `testspec/validator.cpp`, if
-present, against official or generated test inputs.
-
-`taskzip import lio2024` SHOULD convert an LIO 2024 source task directory or
-ZIP with `task.yaml` and the referenced `tests_archive` into a TaskZip
-package.
-The destination path MUST be an existing parent directory, `<dest>/<id>` MUST
-not exist, and implementations SHOULD write the package under `<dest>/<id>`.
-
-`taskzip verify` SHOULD be the combined local audit:
-it SHOULD run conformance checks, validate tests when a validator is present,
-run registered solutions against the official tests, apply `checker.cpp` or
-`interactor.cpp` when required, and compare each received score with the
-expected `score` field in `task.toml` when that field is present.
 
 == AI-assisted workflows
 
@@ -1243,8 +1192,6 @@ but does not bundle the header with a task.
 A file named `testlib.h` MUST NOT appear outside `archive/`.
 Tooling compiling package helper programs SHOULD provide testlib through an
 implementation-defined include path.
-The `taskzip` CLI embeds a canonical copy and writes it to its temporary build
-directory.
 For a longer practical guide, see the companion document `testlib.typ`.
 
 `testlib.h` is a single-header C++ library used in programming-contest task
