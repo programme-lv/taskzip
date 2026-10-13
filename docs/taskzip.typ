@@ -281,7 +281,7 @@ omitted.
 
 == Official tests <sec:tests>
 
-Tests are stored as paired input and output files:
+Tests are stored as input and jury-answer files:
 
 ```text
 tests/001i.txt
@@ -291,12 +291,14 @@ tests/002o.txt
 ```
 
 Test indices MUST be three digits, starting at `001` and consecutive.
-Each input file MUST have a matching output file.
+Each input file MUST have a matching output file, except for interactive
+tasks, where the output file is optional independently for each test.
 The suffix `i` marks input and `o` marks output---the expected answer.
 `o` is used instead of `a` so that alphabetical listing places
 input before output for each index (`001i.txt` before `001o.txt`).
 
-A package MUST contain at least one official test pair.
+A package MUST contain at least one official test input. Answer files MUST
+have a matching input.
 Test files MUST follow the _text rules_: valid UTF-8, LF line
 endings, and no control characters other than tab and newline, nor bidi or
 zero-width formatting characters.
@@ -401,7 +403,7 @@ Such details belong in `task.toml`, site configuration, or `readme.md`.
 Examples are usually shown in a web UI alongside the statement.
 They MUST remain small, human-readable, and safe to render as plain text.
 
-Each example is a paired input and output file:
+For non-interactive tasks, each example is a paired input and output file:
 
 ```text
 examples/001i.txt
@@ -411,7 +413,8 @@ examples/001.md
 
 Example indices MUST be three digits, starting at `001` and consecutive,
 with at most 20 examples (through `020`).
-Each input file MUST have a matching output file, and neither may be empty.
+Each non-interactive example input file MUST have a matching output file,
+and neither may be empty.
 Trace files (`examples/NNN.txt`) are reserved for interactive tasks and
 MUST be rejected otherwise.
 
@@ -764,6 +767,88 @@ Interactor source files MUST be C++, at most 2 MiB each (limit
 `judging-cpp-size` in @tbl:limits), and are expected to use `testlib.h`
 (@app:testlib).
 
+=== Execution contract
+
+TaskZip uses a direct-verdict interactor: `interactor.cpp` MUST itself
+decide whether the solution passed. There is no second checker of the
+interaction log. Tooling MUST invoke the compiled interactor as:
+
+```text
+interactor <input-file> <output-file> [<answer-file>]
+```
+
+The paths MUST refer to the current test input, a fresh writable scratch
+output file, and the jury answer when present. The answer argument MUST
+be omitted when the package has no answer for that test; tooling MUST NOT
+silently substitute an empty file. A supplied empty answer file remains
+distinct from an absent answer.
+The output path MUST NOT refer to the solution executable or package data.
+
+The solution runs as a separate process. Tooling MUST connect solution
+stdout to interactor stdin, and interactor stdout to solution stdin.
+Closing either writer MUST propagate EOF to the peer. Neither process
+receives the hidden input through stdin. Programs MUST flush outgoing
+messages before waiting for a reply; either process may send the first
+or last message, as defined by the problem's communication protocol.
+
+With `registerInteraction(argc, argv)`, testlib maps:
+- `inf` to the input file;
+- `ouf` to stdin, carrying solution messages;
+- `cout` (or C stdout) to messages sent to the solution;
+- `tout` to the scratch output file;
+- `ans` to the optional answer file, unopened when absent.
+
+`tout` MAY hold diagnostic data or an interaction record, but it is not
+the verdict channel and tooling MUST NOT infer acceptance from its contents.
+Its format is problem-specific and unrelated to statement example traces.
+Interactors MUST NOT require a separate checker to interpret `tout`.
+
+The exit status is the authoritative verdict. With default testlib codes:
+- `0` (`_ok`): accept, subject to successful solution termination and limits;
+- `1` (`_wa`): reject;
+- `2` (`_pe`): reject due to malformed solution output;
+- `8` (`_unexpected_eof`, when enabled): reject;
+- `3` (`_fail`): judge/task failure, not a wrong answer;
+- any other code, including `7` (`_points`), is unsupported and MUST be
+  reported as a judge/task error, not converted to a test failure or score.
+
+TaskZip awards points through its test/subtask scoring rules; interactors
+MUST NOT use `quitp`, `_pc`, or redefine testlib exit-code macros.
+Interactor termination by `SIGPIPE` means the solution closed its receiving
+channel early and rejects the test. Other interactor crashes and
+resource-limit failures MUST be reported as judge/task errors when observed.
+stderr contains diagnostics only and MUST
+NOT determine the verdict for either process. The runner does not request
+testlib's optional report-file or `-appes` modes.
+
+An accepting interactor is insufficient by itself: the solution MUST exit
+with status zero within its limits. A rejecting or failed interactor allows
+tooling to terminate the solution immediately. A solution execution failure
+allows tooling to terminate the interactor; however, an already observed
+interactor failure MUST remain a judge/task error.
+Tooling MUST bound wall-clock time to stop deadlocked exchanges and MUST
+terminate and reap launched processes on completion or error.
+An exchange timeout while the solution is still running rejects the test;
+a timeout waiting only for the interactor after successful solution exit
+is a judge/task error.
+
+The fields `testing.cpu_ms` and `testing.mem_mib` apply to the solution,
+not the combined resource use of both processes. Tooling MUST account for
+the interactor separately and document its own interactor and wall limits.
+
+=== Jury answers
+
+Interactive answers are optional, problem-specific auxiliary data for the
+interactor: for example an independently computed optimum or a reference
+witness. They are not necessarily a solution's stdout or a transcript.
+Many interactors can judge using only the hidden input and the live exchange
+and therefore need no answer file. An interactor that requires `ans` MUST
+be packaged with answers for every test on which it reads that stream.
+Generation of interactive jury answers is not defined by this contract;
+`taskzip tests answers` remains unsupported for interactive tasks.
+
+=== Statements and examples
+
 The statement SHOULD contain `Story`/`Stāsts`,
 `Communication`/`Komunikācija`, and `Example`/`Piemērs`.
 The `Piemērs` section SHOULD introduce the sample interaction and refer
@@ -784,39 +869,50 @@ At most 20 examples are allowed (through `020`).
 Import tooling MUST reject `examples/NNNi.txt` and `examples/NNNo.txt`
 for interactive tasks.
 
-A trace file holds one or more interaction steps.
-Each step consists of an input block, a delimiter line, and an output block.
-Steps are concatenated in order; one or more blank lines MAY appear between
-steps.
+A trace file is plain text, not Markdown, and consists of alternating
+message blocks. The first block is output from the interactor; the second
+is output from the solution, and so on.
 
-The delimiter MUST be a line containing exactly `---`.
-It separates the judge input from the contestant output (queries and answers)
-for that step.
-Either side MAY be empty, but the file MUST contain at least one delimiter line
-and MUST NOT be empty overall.
-Two consecutive blank lines MUST NOT be used as the delimiter, because input
-and output may themselves contain blank lines.
+A line containing exactly `---` MUST separate consecutive blocks.
+Every delimiter switches the speaker. The delimiter line is not part of
+either message. Spaces before or after `---` make it an ordinary payload
+line, not a delimiter.
+
+Blocks MAY contain multiple lines and blank lines. Renderers MUST preserve
+payload whitespace and MUST NOT interpret it as Markdown. Blank lines do
+not separate messages and MUST NOT be trimmed as optional spacing.
+Consecutive output from the same party SHOULD be combined into one block.
+
+Either party MAY speak last; no trailing delimiter is required.
+An odd number of blocks ends with the interactor, and an even number ends
+with the solution. Blocks MAY be empty: a leading delimiter represents an
+empty initial interactor block, allowing the solution to speak first.
+A trailing delimiter creates an empty final block; it is not a terminator.
+A final LF alone does not create an additional block.
+
+A trace MUST contain at least one delimiter line.
+Standalone `---` payload lines cannot be represented: they are reserved as
+delimiters, with no escaping syntax. Traces are illustrative statement
+examples, not byte-exact execution logs.
 
 ```text
 8
 2 5
 8 7
-
 ---
-
 0 1 6
-
-1
-
 ---
-
+1
+---
 0 7 5
 ```
 
-Statement renderers SHOULD present such a trace as a table derived from the
-example files.
-Optional notes for a step or example belong in `examples/NNN.md`, not in
-the trace file.
+Statement renderers SHOULD present such a trace as a table or conversation
+derived from the example files, identifying the speaker of each block.
+Optional notes for a message or example belong in `examples/NNN.md`, not in
+the trace file. These explanations support the multilingual language blocks
+defined in @sec:examples; their Markdown formatting does not apply to the
+trace itself.
 
 Trace files MUST follow the text rules of @sec:tests and MUST be at most
 64 KiB each (limit `example-trace-size` in @tbl:limits).
@@ -1000,7 +1096,7 @@ Other sections cite limits by that identifier and refer to @tbl:limits.
     table.hline(stroke: 0.5pt),
     [#text(size: 8.5pt, font: "DejaVu Sans Mono")[tests-count]],
       [Official tests],
-      [$<=$ 9999 input/output pairs],
+      [$<=$ 9999 inputs, with answers as required by task type],
     table.hline(stroke: 0.5pt),
     [#text(size: 8.5pt, font: "DejaVu Sans Mono")[test-file-size]],
       [Single test input or output file],

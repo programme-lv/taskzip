@@ -51,7 +51,9 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
     if pkg.meta.solutions.is_empty() {
         return Ok(Vec::new());
     }
-    run::ensure_time()?;
+    if pkg.meta.testing.kind != "interactor" {
+        run::ensure_time()?;
+    }
     let limits = solution_limits(pkg);
     let tests = test_indices(pkg)?;
     let total = score::task_total_pkg(pkg)?;
@@ -237,9 +239,15 @@ fn run_on_tests(
                     limits,
                 )?
             }
-            "interactor" => {
-                run_interactor(judge.interactor.as_ref().unwrap(), &input, solution, limits)?
-            }
+            "interactor" => run_interactor(
+                judge.interactor.as_ref().unwrap(),
+                &input,
+                &answer,
+                solution,
+                limits,
+                pkg.meta.testing.mem_mib,
+            )
+            .with_context(|| format!("solution {} test {id:03}", solution.display()))?,
             other => bail!("unknown testing {other}"),
         };
         out.push(if ok { TestVerdict::Ok } else { TestVerdict::Wa });
@@ -283,16 +291,24 @@ fn run_checker(
 fn run_interactor(
     interactor: &Path,
     input: &Path,
+    answer: &Path,
     solution: &Path,
     limits: Limits,
+    mem_mib: u32,
 ) -> Result<bool> {
-    let out = run::run(
-        interactor,
-        &[input.to_str().unwrap(), solution.to_str().unwrap()],
-        None,
-        limits,
-    )?;
-    Ok(!run_failed(&out, limits))
+    #[cfg(target_os = "linux")]
+    {
+        crate::interactive::run(
+            interactor,
+            solution,
+            input,
+            answer.is_file().then_some(answer),
+            limits,
+            mem_mib,
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    bail!("interactive execution requires Linux")
 }
 
 fn run_failed(out: &run::Output, limits: Limits) -> bool {

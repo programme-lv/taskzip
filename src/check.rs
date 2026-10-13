@@ -171,6 +171,7 @@ fn check_testspec_manifest(pkg: &Package) -> Result<()> {
 }
 
 pub fn test_indices(pkg: &Package) -> Result<Vec<u32>> {
+    check_answer_inputs(pkg)?;
     let mut ids: Vec<u32> = pkg
         .files
         .iter()
@@ -193,13 +194,30 @@ pub fn test_indices(pkg: &Package) -> Result<Vec<u32>> {
             bail!("tests not consecutive at {id:03}");
         }
         let o = format!("tests/{id:03}o.txt");
-        if !pkg.files.contains(&o) {
+        let has_answer = pkg.files.contains(&o);
+        if !has_answer && pkg.meta.testing.kind != "interactor" {
             bail!("missing {o}");
         }
         check_test_file(pkg, &format!("tests/{id:03}i.txt"), true)?;
-        check_test_file(pkg, &o, false)?;
+        if has_answer {
+            check_test_file(pkg, &o, false)?;
+        }
     }
     Ok(ids)
+}
+
+fn check_answer_inputs(pkg: &Package) -> Result<()> {
+    for path in &pkg.files {
+        if let Some(id) = path
+            .strip_prefix("tests/")
+            .and_then(|p| p.strip_suffix("o.txt"))
+        {
+            if !pkg.files.contains(&format!("tests/{id}i.txt")) {
+                bail!("answer {path} without input");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn check_test_file(pkg: &Package, path: &str, input: bool) -> Result<()> {
@@ -251,12 +269,7 @@ fn check_examples(pkg: &Package) -> Result<()> {
             bail!("too many examples");
         }
         if interactive {
-            let p = format!("examples/{id:03}.txt");
-            let text = crate::package::read_text(pkg, &p)?;
-            if text.is_empty() || !text.contains("\n---\n") && !text.contains("---") {
-                bail!("example trace {id:03} needs --- delimiter");
-            }
-            check_text(&p, &text, false)?;
+            check_trace(pkg, id)?;
         } else {
             let i = format!("examples/{id:03}i.txt");
             let o = format!("examples/{id:03}o.txt");
@@ -268,6 +281,19 @@ fn check_examples(pkg: &Package) -> Result<()> {
             check_text(&i, &ti, true)?;
             check_text(&o, &to, false)?;
         }
+    }
+    Ok(())
+}
+
+fn check_trace(pkg: &Package, id: u32) -> Result<()> {
+    let path = format!("examples/{id:03}.txt");
+    let text = crate::package::read_text(pkg, &path)?;
+    check_text(&path, &text, false)?;
+    if text.len() > 64 * 1024 {
+        bail!("example trace {id:03} exceeds 64 KiB");
+    }
+    if !text.split('\n').any(|line| line == "---") {
+        bail!("example trace {id:03} needs standalone --- delimiter");
     }
     Ok(())
 }
