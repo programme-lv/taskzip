@@ -1,6 +1,6 @@
-Estimate which scored subtasks this solution will fully solve within {{cpu_ms}} milliseconds.
+Estimate which scored subtasks this solution will fully solve within {{budget}}.
 Analyze its algorithm, complexity, constant factors, and each subtask's constraints.
-Treat the estimate as approximate, but do not assume extra time beyond the stated limit.
+Treat the estimate as approximate, but do not assume extra limits beyond the stated ones.
 
 Scored subtasks in task.toml order:
 {{subtasks}}

@@ -6,7 +6,7 @@ Use KaTeX-compatible LaTeX inside `$...$` for mathematics.
 Inside math, prefer LaTeX commands such as `\leq` over Unicode symbols or ASCII forms such as `<=`.
 Use standard Markdown image syntax and only filenames listed as available.
 Do not use raw HTML images.
-Omit time and memory limits, output-flush instructions, query-limit behavior, and platform invocation help.
+Omit time and memory limits, output-flush instructions, query-limit failure behavior, and platform invocation help.
 
 Images:
 - Give each image a short caption from the surrounding text or the Typst `caption:`.

@@ -186,6 +186,7 @@ fn required(name: &str, value: &str) -> Result<String> {
 const SYSTEM: &str = include_str!("../prompts/lio2024/system.md");
 const FORMAT: &str = include_str!("../prompts/lio2024/format.md");
 const STORY: &str = include_str!("../prompts/lio2024/story.md");
+const TALK: &str = include_str!("../prompts/lio2024/talk.md");
 const INPUT: &str = include_str!("../prompts/lio2024/input.md");
 const OUTPUT: &str = include_str!("../prompts/lio2024/output.md");
 const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
@@ -200,6 +201,7 @@ pub struct StatementParts {
     pub story: String,
     pub input: String,
     pub output: String,
+    pub talk: String,
     pub subtasks: Vec<String>,
     pub metadata: TaskMetadata,
     pub solutions: Vec<SolutionEstimate>,
@@ -306,6 +308,7 @@ pub fn import_statement(
     subtask_count: usize,
     cpu_ms: u32,
     solutions: &[(String, String)],
+    interactive: bool,
     mut on_progress: impl FnMut(StatementEvent),
 ) -> Result<StatementParts> {
     let system = render_system(typ_source, images)?;
@@ -313,9 +316,7 @@ pub fn import_statement(
     on_progress(StatementEvent::Model(chat.model.clone()));
     let mut usage = TokenUsage::default();
     let mut review = ImportReview::default();
-    let story = ask_counted(&mut chat, "story", STORY, &mut usage, &mut on_progress)?;
-    let input = ask_counted(&mut chat, "input", INPUT, &mut usage, &mut on_progress)?;
-    let output = ask_counted(&mut chat, "output", OUTPUT, &mut usage, &mut on_progress)?;
+    let sections = ask_sections(&mut chat, interactive, &mut usage, &mut on_progress)?;
     let subtasks_prompt = render_subtasks(subtask_count)?;
     let subtasks = ask_validated(
         &mut chat,
@@ -353,6 +354,7 @@ pub fn import_statement(
         solutions,
         &subtasks,
         cpu_ms,
+        interactive,
         &mut on_progress,
         &mut review.repairs,
     )?;
@@ -362,14 +364,48 @@ pub fn import_statement(
     review.prompts_sha256 = prompts_hash();
     review.usage = usage;
     Ok(StatementParts {
-        story,
-        input,
-        output,
+        story: sections.story,
+        input: sections.input,
+        output: sections.output,
+        talk: sections.talk,
         subtasks,
         metadata,
         solutions,
         usage,
         review,
+    })
+}
+
+struct StatementSections {
+    story: String,
+    input: String,
+    output: String,
+    talk: String,
+}
+
+fn ask_sections(
+    chat: &mut Chat,
+    interactive: bool,
+    usage: &mut TokenUsage,
+    on_progress: &mut impl FnMut(StatementEvent),
+) -> Result<StatementSections> {
+    let story = ask_counted(chat, "story", STORY, usage, on_progress)?;
+    if interactive {
+        let talk = ask_counted(chat, "talk", TALK, usage, on_progress)?;
+        return Ok(StatementSections {
+            story,
+            input: String::new(),
+            output: String::new(),
+            talk,
+        });
+    }
+    let input = ask_counted(chat, "input", INPUT, usage, on_progress)?;
+    let output = ask_counted(chat, "output", OUTPUT, usage, on_progress)?;
+    Ok(StatementSections {
+        story,
+        input,
+        output,
+        talk: String::new(),
     })
 }
 
@@ -541,7 +577,7 @@ impl Chat {
     fn new(system: String, provider: Provider) -> Result<Self> {
         let credentials = resolve_credentials(provider)?;
         let client = Client::builder()
-            .timeout(Duration::from_secs(120))
+            .timeout(Duration::from_secs(300))
             .build()
             .context("build AI client")?;
         Ok(Self {
@@ -813,14 +849,16 @@ fn estimate_solutions(
     sources: &[(String, String)],
     subtasks: &[String],
     cpu_ms: u32,
+    interactive: bool,
     on_progress: &mut impl FnMut(StatementEvent),
     repairs: &mut Vec<RepairNote>,
 ) -> Result<(Vec<SolutionEstimate>, TokenUsage)> {
     let mut estimates = Vec::new();
     let mut usage = TokenUsage::default();
+    let budget = solution_budget(cpu_ms, interactive);
     for (fname, source) in sources {
         chat.reset();
-        let prompt = render_solution(fname, source, subtasks, cpu_ms)?;
+        let prompt = render_solution(fname, source, subtasks, &budget)?;
         let part = format!("solution {fname}");
         let ids = ask_validated(
             chat,
@@ -898,7 +936,7 @@ fn render_metadata() -> Result<String> {
 fn prompts_hash() -> String {
     let mut hash = Sha256::new();
     for part in [
-        SYSTEM, FORMAT, STORY, INPUT, OUTPUT, SUBTASKS, METADATA, SOLUTION, REVIEW,
+        SYSTEM, FORMAT, STORY, TALK, INPUT, OUTPUT, SUBTASKS, METADATA, SOLUTION, REVIEW,
     ] {
         hash.update(part.as_bytes());
         hash.update([0]);
@@ -906,8 +944,16 @@ fn prompts_hash() -> String {
     format!("{:x}", hash.finalize())
 }
 
-fn render_solution(fname: &str, source: &str, subtasks: &[String], cpu_ms: u32) -> Result<String> {
-    let cpu_ms = cpu_ms.to_string();
+fn solution_budget(cpu_ms: u32, interactive: bool) -> String {
+    if interactive {
+        "the interaction limits stated in the communication section, for example the maximum number of queries"
+            .to_string()
+    } else {
+        format!("{cpu_ms} milliseconds")
+    }
+}
+
+fn render_solution(fname: &str, source: &str, subtasks: &[String], budget: &str) -> Result<String> {
     let subtasks = subtasks
         .iter()
         .enumerate()
@@ -920,7 +966,7 @@ fn render_solution(fname: &str, source: &str, subtasks: &[String], cpu_ms: u32) 
             ("fname", fname),
             ("source", source),
             ("subtasks", &subtasks),
-            ("cpu_ms", &cpu_ms),
+            ("budget", budget),
         ],
     )
 }
