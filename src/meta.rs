@@ -31,7 +31,7 @@ pub struct Solution {
     pub fname: String,
     #[serde(default)]
     pub subtasks: Vec<u32>,
-    pub score: Option<u32>,
+    pub score: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

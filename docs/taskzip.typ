@@ -191,13 +191,21 @@ positive integers within these bounds: `cpu_ms` from 100 to 15000;
 There is no scoring type field.
 The scoring mode is determined by the presence of `[[subtasks]]` entries.
 
-If no subtasks are declared, each passing test awards one point.
-The score is the number of passed tests, and the total equals the test count
+If no subtasks are declared, each test is worth one point.
+A test awards its percentage of that point, so the score is the sum of the
+test percentages divided by 100 and the total equals the test count
 (@sec:tests).
 
 If at least one subtask is declared, scoring is by subtasks.
-Points are awarded all-or-nothing: a scoring unit awards its points only if
-every test in it passes.
+For simple and checker tasks, a scoring unit awards its points only if every
+test in it passes. For interactive tasks, a test may earn a partial
+percentage, and the unit awards its points in proportion to the mean
+percentage of its tests, rounded to `0.01` point:
+
+```text
+unit_score = points * sum(test_percent) / (100 * test_count)
+```
+
 The task total is the sum of all subtask points.
 
 Each `[[subtasks]]` entry MUST contain exactly one of:
@@ -733,9 +741,9 @@ Solution entries MAY record the score a known solution is expected to receive.
 This is useful for partial solutions, intentionally slow solutions, and
 regression checks during import.
 
-If present, `score` in a `[[solutions]]` entry MUST be an integer from
+If present, `score` in a `[[solutions]]` entry MUST be a number from
 0 to the task total: the test count without subtasks, or the sum of subtask
-points otherwise (@sec:scoring).
+points otherwise (@sec:scoring). At most two decimal places are meaningful.
 For a full accepted solution, `score` SHOULD equal the task total.
 For a partial solution, `score` SHOULD match the points expected from the
 declared subtasks and groups.
@@ -797,17 +805,24 @@ the verdict channel and tooling MUST NOT infer acceptance from its contents.
 Its format is problem-specific and unrelated to statement example traces.
 Interactors MUST NOT require a separate checker to interpret `tout`.
 
-The exit status is the authoritative verdict. With default testlib codes:
-- `0` (`_ok`): accept, subject to successful solution termination and limits;
+The exit status is the authoritative verdict. Tooling MUST compile
+interactors so that testlib partial-score exit codes start at `50`, for
+example with `-DPC_BASE_EXIT_CODE=50`. With that configuration:
+- `0` (`_ok`): accept for the full test percentage;
+- `50` to `150` (`_pc(p)`): accept with percentage `exit_code - 50`;
 - `1` (`_wa`): reject;
 - `2` (`_pe`): reject due to malformed solution output;
 - `8` (`_unexpected_eof`, when enabled): reject;
 - `3` (`_fail`): judge/task failure, not a wrong answer;
-- any other code, including `7` (`_points`), is unsupported and MUST be
+- any other code, including `_points` (`quitp`), is unsupported and MUST be
   reported as a judge/task error, not converted to a test failure or score.
 
+A partial percentage applies only when the solution itself also terminates
+successfully within its limits; otherwise the test scores zero. The
+interactor may award `0` percent, which rejects the test for scoring while
+remaining a valid interaction rather than a wrong-answer verdict.
 TaskZip awards points through its test/subtask scoring rules; interactors
-MUST NOT use `quitp`, `_pc`, or redefine testlib exit-code macros.
+MUST NOT use `quitp` or redefine testlib exit-code macros.
 Interactor termination by `SIGPIPE` or by a scratch-file size limit means
 the solution drove the exchange beyond its channel or scratch bounds and
 rejects the test. Other interactor crashes and

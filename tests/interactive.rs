@@ -22,7 +22,7 @@ fn programs() -> &'static (TempDir, PathBuf, PathBuf) {
 fn compile(name: &str, dir: &Path) -> PathBuf {
     let output = dir.join(name);
     let result = Command::new("g++")
-        .args(["-std=c++17", "-O2", "-Iassets"])
+        .args(["-std=c++17", "-O2", "-DPC_BASE_EXIT_CODE=50", "-Iassets"])
         .arg(format!("tests/interactive/{name}.cpp"))
         .arg("-o")
         .arg(&output)
@@ -36,7 +36,7 @@ fn compile(name: &str, dir: &Path) -> PathBuf {
     output
 }
 
-fn exchange(mode: &str, answer: &str, wall: u64) -> anyhow::Result<bool> {
+fn exchange(mode: &str, answer: &str, wall: u64) -> anyhow::Result<u8> {
     let (_, judge, solution) = programs();
     let dir = TempDir::new()?;
     let input = dir.path().join("input.txt");
@@ -59,10 +59,16 @@ fn exchange(mode: &str, answer: &str, wall: u64) -> anyhow::Result<bool> {
 #[test]
 fn testlib_roundtrip_and_empty_answers() {
     for mode in ["normal", "stderr", "judge-work", "close-output"] {
-        assert!(exchange(mode, "", 3000).unwrap(), "{mode}");
+        assert!(exchange(mode, "", 3000).unwrap() == 100, "{mode}");
     }
-    assert!(exchange("normal", "8\n", 3000).unwrap());
-    assert!(!exchange("normal", "42\n", 3000).unwrap());
+    assert!(exchange("normal", "8\n", 3000).unwrap() == 100);
+    assert!(exchange("normal", "42\n", 3000).unwrap() == 0);
+}
+
+#[test]
+fn partial_testlib_score_is_reported() {
+    let percent = exchange("partial", "", 3000).unwrap();
+    assert_eq!(percent, 40, "partial percent");
 }
 
 #[test]
@@ -78,10 +84,10 @@ fn contestant_failures_and_deadlocks_terminate() {
         "memory",
         "close-input",
     ] {
-        assert!(!exchange(mode, "", 200).unwrap(), "{mode}");
+        assert!(exchange(mode, "", 200).unwrap() == 0, "{mode}");
     }
-    assert!(!exchange("spin", "", 3000).unwrap());
-    assert!(!exchange("cpu", "", 3000).unwrap());
+    assert!(exchange("spin", "", 3000).unwrap() == 0);
+    assert!(exchange("cpu", "", 3000).unwrap() == 0);
     assert!(start.elapsed() < Duration::from_secs(6));
 }
 
@@ -217,15 +223,18 @@ fn rejected_exchange_kills_solution_descendants() {
         wall: Duration::from_secs(2),
         cpu: Some(Duration::from_secs(1)),
     };
-    assert!(!taskzip::interactive::run(
-        &judge,
-        &solution,
-        Path::new("unused"),
-        Path::new("unused"),
-        limits,
-        64
-    )
-    .unwrap());
+    assert!(
+        taskzip::interactive::run(
+            &judge,
+            &solution,
+            Path::new("unused"),
+            Path::new("unused"),
+            limits,
+            64
+        )
+        .unwrap()
+            == 0
+    );
     assert_stopped(&fs::read_to_string(pid_file).unwrap());
 }
 
@@ -254,15 +263,18 @@ fn interactor_scratch_limit_rejects_test() {
         wall: Duration::from_secs(5),
         cpu: Some(Duration::from_secs(2)),
     };
-    assert!(!taskzip::interactive::run(
-        &judge,
-        &solution,
-        Path::new("unused"),
-        Path::new("unused"),
-        limits,
-        64
-    )
-    .unwrap());
+    assert!(
+        taskzip::interactive::run(
+            &judge,
+            &solution,
+            Path::new("unused"),
+            Path::new("unused"),
+            limits,
+            64
+        )
+        .unwrap()
+            == 0
+    );
 }
 
 #[test]

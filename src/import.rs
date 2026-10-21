@@ -190,6 +190,7 @@ fn single_root(path: &Path) -> Result<PathBuf> {
 struct LioTask {
     id: String,
     title: String,
+    statement: Option<String>,
     cpu_ms: u32,
     mem_mib: u32,
     testing_kind: String,
@@ -235,6 +236,7 @@ impl LioTask {
         Ok(Self {
             id: format!("lio{}{}", origin.year, raw.name.to_lowercase()),
             title: raw.title,
+            statement: raw.statement,
             cpu_ms: (raw.time_limit * 1000.0).round() as u32,
             mem_mib: raw.memory_limit,
             testing_kind: testing_kind.into(),
@@ -259,7 +261,8 @@ impl LioTask {
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<()> {
-        let (review, partial_scores) = self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
+        let (review, partial_scores) =
+            self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
         self.write_code(src, dest, on_progress)?;
         stage(on_progress, 0, "write archive");
         self.write_archive(src, dest)?;
@@ -439,7 +442,7 @@ impl LioTask {
         Ok(())
     }
 
-    fn score_for_subtasks(&self, subtasks: &[u32]) -> Result<u32> {
+    fn score_for_subtasks(&self, subtasks: &[u32]) -> Result<f64> {
         let source_ids: Vec<_> = self
             .subtask_points
             .iter()
@@ -453,12 +456,13 @@ impl LioTask {
             .map(|id| source_ids.get(*id as usize - 1).copied())
             .collect::<Option<_>>()
             .ok_or_else(|| anyhow::anyhow!("solution subtask out of range"))?;
-        Ok(self
+        let points: u32 = self
             .groups
             .iter()
             .filter(|g| g.id != 0 && selected.contains(&g.subtask))
             .map(|g| g.points)
-            .sum())
+            .sum();
+        Ok(f64::from(points))
     }
 
     fn write_origin(&self, out: &mut String) {
@@ -613,7 +617,7 @@ impl LioTask {
         on_progress: &mut impl FnMut(Event),
     ) -> Result<assist::StatementParts> {
         stage(on_progress, 0, "import with AI");
-        let source = read_typ_source(src)?;
+        let source = read_typ_source(src, self.statement.as_deref())?;
         let solutions = read_solution_sources(src, &self.solutions)?;
         let parts = assist::import_statement(
             provider,
@@ -655,7 +659,10 @@ impl LioTask {
         );
         let path = dest.join("statement/lv.md");
         if let Some(parts) = ai {
-            fs::write(&path, statement_markdown(parts, self.testing_kind == "interactor"))?;
+            fs::write(
+                &path,
+                statement_markdown(parts, self.testing_kind == "interactor"),
+            )?;
         } else {
             fs::write(
                 &path,
@@ -912,7 +919,11 @@ fn dir_stats(root: &Path) -> Result<DirStats> {
     Ok(stats)
 }
 
-fn read_typ_source(src: &Path) -> Result<String> {
+fn read_typ_source(src: &Path, statement: Option<&str>) -> Result<String> {
+    if let Some(statement) = statement {
+        let path = src.join(statement);
+        return fs::read_to_string(&path).with_context(|| format!("read {}", path.display()));
+    }
     let files: Vec<_> = files_under(&src.join("teksts"))?
         .into_iter()
         .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("typ"))
@@ -943,6 +954,8 @@ fn statement_markdown(parts: &assist::StatementParts, interactive: bool) -> Stri
 struct RawYaml {
     name: String,
     title: String,
+    #[serde(default)]
+    statements: Vec<(String, String)>,
     time_limit: f64,
     memory_limit: u32,
     tests_archive: String,
@@ -957,6 +970,7 @@ struct RawYaml {
 struct RawGroup {
     groups: serde_yaml::Value,
     points: u32,
+    #[serde(default)]
     public: serde_yaml::Value,
     subtask: u32,
 }
@@ -968,6 +982,7 @@ impl RawYaml {
         Ok(ParsedYaml {
             name: raw.name,
             title: raw.title,
+            statement: statement_path(raw.statements),
             time_limit: raw.time_limit,
             memory_limit: raw.memory_limit,
             tests_archive: raw.tests_archive,
@@ -983,6 +998,7 @@ impl RawYaml {
 struct ParsedYaml {
     name: String,
     title: String,
+    statement: Option<String>,
     time_limit: f64,
     memory_limit: u32,
     tests_archive: String,
@@ -991,6 +1007,14 @@ struct ParsedYaml {
     validator: Option<String>,
     subtask_points: Vec<u32>,
     groups: Vec<LioGroup>,
+}
+
+fn statement_path(statements: Vec<(String, String)>) -> Option<String> {
+    statements
+        .iter()
+        .find(|(_, lang)| lang == "lv")
+        .or_else(|| statements.first())
+        .map(|(path, _)| path.clone())
 }
 
 fn expand_groups(raw: Vec<RawGroup>) -> Result<Vec<LioGroup>> {
@@ -1008,6 +1032,7 @@ fn expand_groups(raw: Vec<RawGroup>) -> Result<Vec<LioGroup>> {
             });
         }
     }
+    out.sort_by_key(|g| g.id);
     Ok(out)
 }
 

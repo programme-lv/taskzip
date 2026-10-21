@@ -13,17 +13,27 @@ pub struct TestGroup {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum TestVerdict {
-    Ok,
-    Wa,
+pub struct TestVerdict {
+    pub percent: u8,
 }
 
-pub fn total_score(meta: &TaskMeta, tests: &[u32], verdicts: &[TestVerdict]) -> Result<u32> {
+impl TestVerdict {
+    pub fn ok() -> Self {
+        Self { percent: 100 }
+    }
+
+    pub fn wa() -> Self {
+        Self { percent: 0 }
+    }
+}
+
+pub fn total_score(meta: &TaskMeta, tests: &[u32], verdicts: &[TestVerdict]) -> Result<f64> {
     if verdicts.len() != tests.len() {
         bail!("verdict count mismatch");
     }
     if meta.subtasks.is_empty() {
-        return Ok(verdicts.iter().filter(|v| **v == TestVerdict::Ok).count() as u32);
+        let centi: u32 = verdicts.iter().map(|v| u32::from(v.percent)).sum();
+        return Ok(f64::from(centi) / 100.0);
     }
     let groups = Vec::new();
     score_subtasks(meta, tests, verdicts, &groups)
@@ -34,40 +44,61 @@ fn score_subtasks(
     tests: &[u32],
     verdicts: &[TestVerdict],
     groups: &[TestGroup],
-) -> Result<u32> {
-    let pass = verdict_map(tests, verdicts);
-    let mut total = 0u32;
+) -> Result<f64> {
+    let percents = verdict_map(tests, verdicts);
+    let partial = meta.testing.kind == "interactor";
+    let mut centi = 0u32;
     for st in &meta.subtasks {
         if let Some(spec) = &st.tests {
-            let ids = parse_range(spec)?;
-            if ids.iter().all(|t| pass[t]) {
-                total += st.points.unwrap_or(0);
-            }
+            centi += group_centi(
+                st.points.unwrap_or(0),
+                &parse_range(spec)?,
+                &percents,
+                partial,
+            );
         } else if let Some(spec) = &st.groups {
             for id in parse_range(spec)? {
                 let g = groups
                     .iter()
                     .find(|g| g.id == id)
                     .ok_or_else(|| anyhow::anyhow!("missing test group {id:02}"))?;
-                let ids = parse_range(&g.tests)?;
-                if ids.iter().all(|t| pass[t]) {
-                    total += g.points;
-                }
+                centi += group_centi(g.points, &parse_range(&g.tests)?, &percents, partial);
             }
         }
     }
-    Ok(total)
+    Ok(f64::from(centi) / 100.0)
 }
 
-fn verdict_map(tests: &[u32], verdicts: &[TestVerdict]) -> std::collections::HashMap<u32, bool> {
+fn group_centi(
+    points: u32,
+    ids: &[u32],
+    percents: &std::collections::HashMap<u32, u8>,
+    partial: bool,
+) -> u32 {
+    if ids.is_empty() {
+        return 0;
+    }
+    let mut sum = 0u32;
+    for t in ids {
+        let percent = u32::from(percents.get(t).copied().unwrap_or(0));
+        if !partial && percent != 100 {
+            return 0;
+        }
+        sum += percent;
+    }
+    let n = ids.len() as u32;
+    (points * sum + n / 2) / n
+}
+
+fn verdict_map(tests: &[u32], verdicts: &[TestVerdict]) -> std::collections::HashMap<u32, u8> {
     tests
         .iter()
         .zip(verdicts)
-        .map(|(&t, v)| (t, *v == TestVerdict::Ok))
+        .map(|(&t, v)| (t, v.percent))
         .collect()
 }
 
-pub fn total_score_pkg(pkg: &Package, verdicts: &[TestVerdict]) -> Result<u32> {
+pub fn total_score_pkg(pkg: &Package, verdicts: &[TestVerdict]) -> Result<f64> {
     let tests = test_indices(pkg)?;
     if pkg.meta.subtasks.is_empty() {
         return total_score(&pkg.meta, &tests, verdicts);
@@ -76,30 +107,35 @@ pub fn total_score_pkg(pkg: &Package, verdicts: &[TestVerdict]) -> Result<u32> {
     score_subtasks(&pkg.meta, &tests, verdicts, &groups)
 }
 
-pub fn task_total(meta: &TaskMeta, test_count: usize) -> u32 {
+pub fn task_total(meta: &TaskMeta, test_count: usize) -> f64 {
     if meta.subtasks.is_empty() {
-        return test_count as u32;
+        return test_count as f64;
     }
-    meta.subtasks.iter().map(|st| st.points.unwrap_or(0)).sum()
+    meta.subtasks
+        .iter()
+        .map(|st| f64::from(st.points.unwrap_or(0)))
+        .sum()
 }
 
-pub fn task_total_pkg(pkg: &Package) -> Result<u32> {
+pub fn task_total_pkg(pkg: &Package) -> Result<f64> {
     let test_count = test_indices(pkg)?.len();
     if pkg.meta.subtasks.is_empty() {
-        return Ok(test_count as u32);
+        return Ok(test_count as f64);
     }
     let groups = read_tgroups(pkg)?;
-    let mut total = 0;
+    let mut total = 0.0;
     for st in &pkg.meta.subtasks {
         if let Some(points) = st.points {
-            total += points;
+            total += f64::from(points);
         } else if let Some(spec) = &st.groups {
             for id in parse_range(spec)? {
-                total += groups
-                    .iter()
-                    .find(|g| g.id == id)
-                    .ok_or_else(|| anyhow::anyhow!("missing test group {id:02}"))?
-                    .points;
+                total += f64::from(
+                    groups
+                        .iter()
+                        .find(|g| g.id == id)
+                        .ok_or_else(|| anyhow::anyhow!("missing test group {id:02}"))?
+                        .points,
+                );
             }
         }
     }

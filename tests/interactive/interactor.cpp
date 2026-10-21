@@ -22,6 +22,10 @@ int main(int argc, char **argv) {
     if (!ans.seekEof()) expected = ans.readInt();
     tout << actual << std::endl;
     if (actual != expected) quitf(_wa, "expected %d, got %d", expected, actual);
+    if (mode == "partial") {
+        std::cout << "done" << std::endl;
+        quitf(_pc(40), "partial score");
+    }
     if (mode == "close-output") {
         if (!ouf.seekEof()) quitf(_wa, "trailing output");
         quitf(_ok, "EOF received");
