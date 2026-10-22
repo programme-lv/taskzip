@@ -261,7 +261,7 @@ impl LioTask {
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<()> {
-        let (review, partial_scores) =
+        let (review, partial_scores, has_examples) =
             self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
         self.write_code(src, dest, on_progress)?;
         stage(on_progress, 0, "write archive");
@@ -277,6 +277,7 @@ impl LioTask {
             !skip_ai_import,
             review.as_ref(),
             self.testing_kind == "interactor",
+            has_examples,
             partial_scores,
         );
         Ok(())
@@ -289,7 +290,7 @@ impl LioTask {
         provider: assist::Provider,
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
-    ) -> Result<(Option<assist::ImportReview>, bool)> {
+    ) -> Result<(Option<assist::ImportReview>, bool, bool)> {
         let statement = dest.join("statement");
         fs::create_dir_all(&statement)?;
         let images = self.copy_statement_assets(src, dest, &statement)?;
@@ -311,20 +312,56 @@ impl LioTask {
         self.write_tests(dest)?;
         detail(on_progress, 1, self.tests_summary());
         self.write_statement(dest, &images, ai.as_ref(), skip_ai_import, on_progress)?;
+        self.write_examples(dest, ai.as_ref())?;
         let review = ai.as_ref().map(|parts| &parts.review);
         let interactive = self.testing_kind == "interactor";
+        let has_examples = ai.as_ref().is_some_and(|parts| !parts.examples.is_empty());
         let partial_scores = ai.as_ref().is_some_and(|parts| {
             parts
                 .solutions
                 .iter()
                 .any(|solution| solution.subtasks.len() < self.subtask_count())
         });
-        if !todo_items(!skip_ai_import, review, interactive, partial_scores).is_empty() {
+        if !todo_items(
+            !skip_ai_import,
+            review,
+            interactive,
+            has_examples,
+            partial_scores,
+        )
+        .is_empty()
+        {
             stage(on_progress, 0, "write readme");
-            self.write_readme(dest, !skip_ai_import, review, partial_scores)?;
+            self.write_readme(dest, !skip_ai_import, review, has_examples, partial_scores)?;
             detail(on_progress, 1, "readme.md");
         }
-        Ok((ai.map(|parts| parts.review), partial_scores))
+        Ok((ai.map(|parts| parts.review), partial_scores, has_examples))
+    }
+
+    fn write_examples(&self, dest: &Path, ai: Option<&assist::StatementParts>) -> Result<()> {
+        let Some(parts) = ai else {
+            return Ok(());
+        };
+        if parts.examples.is_empty() {
+            return Ok(());
+        }
+        let dir = dest.join("examples");
+        fs::create_dir_all(&dir)?;
+        for (i, example) in parts.examples.iter().enumerate() {
+            let id = i + 1;
+            fs::write(dir.join(format!("{id:03}.txt")), &example.trace)?;
+            if !example.notes.is_empty() {
+                let mut notes = String::new();
+                for (lang, note) in &example.notes {
+                    notes.push_str(lang);
+                    notes.push_str("\n---\n");
+                    notes.push_str(note);
+                    notes.push('\n');
+                }
+                fs::write(dir.join(format!("{id:03}.md")), notes)?;
+            }
+        }
+        Ok(())
     }
 
     fn write_import_metadata(&self, dest: &Path, review: &assist::ImportReview) -> Result<()> {
@@ -531,6 +568,7 @@ impl LioTask {
         dest: &Path,
         ai_imported: bool,
         review: Option<&assist::ImportReview>,
+        has_examples: bool,
         partial_scores: bool,
     ) -> Result<()> {
         let mut text = String::from("## TODO\n\n");
@@ -538,6 +576,7 @@ impl LioTask {
             ai_imported,
             review,
             self.testing_kind == "interactor",
+            has_examples,
             partial_scores,
         ) {
             text.push_str(&format!("- [ ] {item}\n"));
@@ -844,6 +883,7 @@ fn todo_items(
     ai_imported: bool,
     review: Option<&assist::ImportReview>,
     interactive: bool,
+    has_examples: bool,
     partial_scores: bool,
 ) -> Vec<String> {
     let mut items: Vec<String> = Vec::new();
@@ -856,7 +896,7 @@ fn todo_items(
     if partial_scores {
         items.push("verify estimated partial solution scores".into());
     }
-    if interactive {
+    if interactive && !has_examples {
         items.push("author interactive example traces under `examples/`".into());
     }
     if let Some(review) = review {
@@ -892,9 +932,16 @@ fn report_todos(
     ai_imported: bool,
     review: Option<&assist::ImportReview>,
     interactive: bool,
+    has_examples: bool,
     partial_scores: bool,
 ) {
-    let items = todo_items(ai_imported, review, interactive, partial_scores);
+    let items = todo_items(
+        ai_imported,
+        review,
+        interactive,
+        has_examples,
+        partial_scores,
+    );
     if items.is_empty() {
         return;
     }
@@ -1292,7 +1339,7 @@ mod tests {
             warnings: vec!["review pass unparsed: x".into()],
             ..Default::default()
         };
-        let items = todo_items(true, Some(&review), false, false);
+        let items = todo_items(true, Some(&review), false, false, false);
         for needle in [
             "bogus",
             "lerp",
@@ -1311,12 +1358,12 @@ mod tests {
     #[test]
     fn clean_ai_import_needs_no_readme() {
         let review = ImportReview::default();
-        assert!(todo_items(true, Some(&review), false, false).is_empty());
-        assert!(!todo_items(false, None, false, false).is_empty());
-        assert!(todo_items(false, None, true, false)
+        assert!(todo_items(true, Some(&review), false, false, false).is_empty());
+        assert!(!todo_items(false, None, false, false, false).is_empty());
+        assert!(todo_items(false, None, true, false, false)
             .iter()
             .any(|item| item.contains("example traces")));
-        assert!(todo_items(true, Some(&review), false, true)
+        assert!(todo_items(true, Some(&review), false, false, true)
             .iter()
             .any(|item| item.contains("partial solution scores")));
     }

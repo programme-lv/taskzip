@@ -4,6 +4,7 @@ use clap::ValueEnum;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -193,6 +194,7 @@ const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
 const METADATA: &str = include_str!("../prompts/lio2024/metadata.md");
 const SOLUTION: &str = include_str!("../prompts/lio2024/solution.md");
 const REVIEW: &str = include_str!("../prompts/lio2024/review.md");
+const EXAMPLES: &str = include_str!("../prompts/lio2024/examples.md");
 
 /// How many times a rejected structured answer is sent back to the model.
 const MAX_REPAIR_ATTEMPTS: usize = 2;
@@ -202,11 +204,18 @@ pub struct StatementParts {
     pub input: String,
     pub output: String,
     pub talk: String,
+    pub examples: Vec<InteractiveExample>,
     pub subtasks: Vec<String>,
     pub metadata: TaskMetadata,
     pub solutions: Vec<SolutionEstimate>,
     pub usage: TokenUsage,
     pub review: ImportReview,
+}
+
+#[derive(Clone, Debug)]
+pub struct InteractiveExample {
+    pub trace: String,
+    pub notes: BTreeMap<String, String>,
 }
 
 /// Provenance and uncertainty captured while importing, written to
@@ -317,6 +326,19 @@ pub fn import_statement(
     let mut usage = TokenUsage::default();
     let mut review = ImportReview::default();
     let sections = ask_sections(&mut chat, interactive, &mut usage, &mut on_progress)?;
+    let examples = if interactive {
+        ask_validated(
+            &mut chat,
+            "examples",
+            EXAMPLES,
+            parse_examples,
+            &mut usage,
+            &mut on_progress,
+            &mut review.repairs,
+        )?
+    } else {
+        Vec::new()
+    };
     let subtasks_prompt = render_subtasks(subtask_count)?;
     let subtasks = ask_validated(
         &mut chat,
@@ -368,6 +390,7 @@ pub fn import_statement(
         input: sections.input,
         output: sections.output,
         talk: sections.talk,
+        examples,
         subtasks,
         metadata,
         solutions,
@@ -502,6 +525,89 @@ fn repair_prompt(part: &str, error: &str) -> String {
          Return a corrected response that satisfies the original instructions exactly. \
          Return only the requested output."
     )
+}
+
+#[derive(Deserialize)]
+struct ExampleOutput {
+    blocks: Vec<ExampleBlock>,
+    #[serde(default)]
+    notes: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct ExampleBlock {
+    speaker: String,
+    text: String,
+}
+
+fn parse_examples(raw: &str) -> Result<Vec<InteractiveExample>> {
+    let json = strip_code_fences(raw);
+    let items: Vec<ExampleOutput> = serde_json::from_str(json).context("parse examples JSON")?;
+    if items.len() > 20 {
+        bail!("too many communication examples");
+    }
+    items.into_iter().map(build_example).collect()
+}
+
+fn strip_code_fences(raw: &str) -> &str {
+    let text = raw.trim();
+    let text = text
+        .strip_prefix("```json")
+        .or_else(|| text.strip_prefix("```"))
+        .unwrap_or(text);
+    text.strip_suffix("```").unwrap_or(text).trim()
+}
+
+fn build_example(item: ExampleOutput) -> Result<InteractiveExample> {
+    let mut blocks: Vec<(String, String)> = Vec::new();
+    for block in item.blocks {
+        let speaker = block.speaker.trim().to_ascii_lowercase();
+        if speaker != "interactor" && speaker != "solution" {
+            bail!("unknown example speaker {speaker}");
+        }
+        let text = block
+            .text
+            .trim_end_matches(|c| c == '\r' || c == '\n')
+            .to_string();
+        if text.is_empty() {
+            bail!("empty communication example block");
+        }
+        if text.lines().any(|line| line == "---") {
+            bail!("communication example block contains a reserved --- line");
+        }
+        if let Some((last, last_text)) = blocks.last_mut() {
+            if *last == speaker {
+                last_text.push('\n');
+                last_text.push_str(&text);
+                continue;
+            }
+        }
+        blocks.push((speaker, text));
+    }
+    if blocks.len() < 2 {
+        bail!("communication example needs at least two speaker blocks");
+    }
+    let mut trace = String::new();
+    if blocks[0].0 == "solution" {
+        trace.push_str("---\n");
+    }
+    for (i, (_, text)) in blocks.iter().enumerate() {
+        if i > 0 {
+            trace.push_str("---\n");
+        }
+        trace.push_str(text);
+        trace.push('\n');
+    }
+    if trace.len() > 64 * 1024 {
+        bail!("communication example trace exceeds 64 KiB");
+    }
+    let notes = item
+        .notes
+        .into_iter()
+        .map(|(lang, note)| (lang.trim().to_ascii_lowercase(), note.trim().to_string()))
+        .filter(|(lang, note)| !lang.is_empty() && !note.is_empty())
+        .collect();
+    Ok(InteractiveExample { trace, notes })
 }
 
 #[derive(Deserialize, Default)]
@@ -936,7 +1042,7 @@ fn render_metadata() -> Result<String> {
 fn prompts_hash() -> String {
     let mut hash = Sha256::new();
     for part in [
-        SYSTEM, FORMAT, STORY, TALK, INPUT, OUTPUT, SUBTASKS, METADATA, SOLUTION, REVIEW,
+        SYSTEM, FORMAT, STORY, TALK, INPUT, OUTPUT, SUBTASKS, METADATA, SOLUTION, REVIEW, EXAMPLES,
     ] {
         hash.update(part.as_bytes());
         hash.update([0]);
@@ -1240,5 +1346,31 @@ mod tests {
         ] {
             assert!(REVIEW.contains(needle), "review prompt missing {needle:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod example_tests {
+    use super::parse_examples;
+
+    #[test]
+    fn serializes_alternating_example_blocks() {
+        let raw = r#"[{"blocks":[{"speaker":"interactor","text":"1 2"},{"speaker":"solution","text":"? 1\n? 2"}],"notes":{"lv":"Piemērs."}}]"#;
+        let examples = parse_examples(raw).unwrap();
+        assert_eq!(examples[0].trace, "1 2\n---\n? 1\n? 2\n");
+        assert_eq!(examples[0].notes["lv"], "Piemērs.");
+    }
+
+    #[test]
+    fn adds_leading_delimiter_when_solution_speaks_first() {
+        let raw = r#"[{"blocks":[{"speaker":"solution","text":"? 1"},{"speaker":"interactor","text":"0"}]}]"#;
+        let examples = parse_examples(raw).unwrap();
+        assert_eq!(examples[0].trace, "---\n? 1\n---\n0\n");
+    }
+
+    #[test]
+    fn accepts_json_code_fences() {
+        let raw = "```json\n[]\n```";
+        assert!(parse_examples(raw).unwrap().is_empty());
     }
 }
