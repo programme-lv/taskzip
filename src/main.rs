@@ -115,6 +115,8 @@ enum Command {
     Verify {
         #[arg(default_value = ".")]
         package: PathBuf,
+        #[arg(long, help = "Verify only this solution filename")]
+        solution: Option<String>,
     },
 }
 
@@ -178,7 +180,7 @@ fn main() -> Result<()> {
         Command::Completions { shell } => run_completions(shell),
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
-        Command::Verify { package } => run_verify(package),
+        Command::Verify { package, solution } => run_verify(package, solution),
         Command::Import {
             format,
             src,
@@ -379,34 +381,36 @@ fn run_answers(
     Ok(())
 }
 
-fn run_verify(package: PathBuf) -> Result<()> {
+fn run_verify(package: PathBuf, solution: Option<String>) -> Result<()> {
     let pkg = package::open(&package)?;
     let warns = check::check(&pkg)?;
     for w in warns {
         eprintln!("warn: {w}");
     }
     exec::validate_tests(&pkg, true)?;
-    let rows = exec::run_solutions(&pkg)?;
+    let rows = exec::run_solutions(&pkg, solution.as_deref())?;
+    let mut mismatches = Vec::new();
     for r in &rows {
-        check_expected_score(r)?;
+        if let Some(message) = expected_score_mismatch(r) {
+            mismatches.push(message);
+        }
+    }
+    if !mismatches.is_empty() {
+        anyhow::bail!("{}", mismatches.join("\n"));
     }
     println!("ok: {} (solutions: {})", pkg.id, rows.len());
     Ok(())
 }
 
-fn check_expected_score(r: &exec::SolutionRun) -> Result<()> {
-    if let Some(exp) = r.expected {
-        if exp != r.score {
-            anyhow::bail!(
-                "{}: score {}/{} != expected {}",
-                r.fname,
-                r.score,
-                r.total,
-                exp
-            );
-        }
+fn expected_score_mismatch(r: &exec::SolutionRun) -> Option<String> {
+    let exp = r.expected?;
+    if (exp - r.score).abs() <= 0.05 {
+        return None;
     }
-    Ok(())
+    Some(format!(
+        "{}: score {:.2}/{:.0} != expected {:.2}",
+        r.fname, r.score, r.total, exp
+    ))
 }
 
 fn run_import(

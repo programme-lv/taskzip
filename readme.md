@@ -35,7 +35,7 @@ taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
 taskzip import lio2024 <src> <dest> [--provider PROVIDER] [--year YEAR] [--stage STAGE] [--division DIVISION]... [--authors NAMES] [--skip-ai-import]
-taskzip verify <package>
+taskzip verify <package> [--solution FNAME]
 ```
 
 `<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
@@ -74,7 +74,7 @@ With `provider = "deepseek"` stored, the import above uses `deepseek-flash` with
 
 AI answers that fail validation (for example a wrong subtask count or an out-of-range difficulty) are sent back to the model to repair, up to two times, before the import fails. Classification slugs are checked against the TaskZip vocabulary: unknown slugs are dropped, and the rest are kept. After importing, check `archive/import-metadata.json` for the provider, model, prompt fingerprint, token usage, dropped and suggested slugs, and any uncertainties or questions the model reported. Uncertainty items, dropped or suggested slugs, and review warnings are also added to the generated `readme.md` TODO list, as is a request to verify partial solution scores. The import never stores model doubt in `task.toml`.
 
-`verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set. Each validator run receives its test's containing subtask as `--group <index>`.
+`verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set. It reports every solution whose score differs, and `--solution FNAME` runs only one solution. Each validator run receives its test's containing subtask as `--group <index>`.
 
 ## Layout
 
@@ -144,11 +144,12 @@ interactor <input-file> <scratch-output-file> <answer-file>
 Use testlib's `registerInteraction`, read the input from `inf`, solution
 messages from `ouf`, and jury data from `ans` (possibly empty). Send replies
 through `cout` and flush. `tout` writes scratch data, not the verdict. The interactor
-must judge the solution itself using `quitf`: exit 0 accepts, 1/2/8 reject,
-and 3 indicates a judge failure. Other codes, including partial scores, are
-errors. stderr is diagnostic-only. Acceptance also requires the solution to
-exit successfully within its limits. See `docs/taskzip.typ`, “Execution
-contract”, for the normative rules.
+must judge the solution itself using `quitf`: exit 0 accepts for the full
+test percentage, 1/2/8 reject, 50–150 accept with `exit_code - 50` percent
+(testlib `_pc` with `PC_BASE_EXIT_CODE=50`), and 3 or any other code indicates
+a judge failure. stderr is diagnostic-only. Acceptance also requires the
+solution to exit successfully within its limits. See `docs/taskzip.typ`,
+“Execution contract”, for the normative rules.
 
 The local Linux runner measures solution user+system CPU with `wait4`, applies
 `cpu_ms` to the completed run, and uses a rounded-up whole-second kernel CPU

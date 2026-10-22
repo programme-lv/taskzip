@@ -303,7 +303,7 @@ fn check_solutions(pkg: &Package) -> Result<()> {
             bail!("missing {path}");
         }
         if let Some(score) = s.score {
-            if score > crate::score::task_total_pkg(pkg)? {
+            if score > crate::score::task_total_pkg(pkg)? + 0.001 {
                 bail!("solution {} score out of range", s.fname);
             }
         }

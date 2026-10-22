@@ -111,16 +111,18 @@ fn join_pipe(handle: Option<thread::JoinHandle<Vec<u8>>>) -> Vec<u8> {
 
 fn read_cpu(path: &Path) -> Result<Duration> {
     let text = fs::read_to_string(path).context("read time output")?;
-    let mut parts = text.split_whitespace();
-    let user: f64 = parts
-        .next()
-        .context("time user")?
-        .parse()
-        .context("time user parse")?;
-    let sys: f64 = parts
-        .next()
-        .context("time sys")?
-        .parse()
-        .context("time sys parse")?;
+    let line = text
+        .lines()
+        .rev()
+        .find_map(time_values)
+        .with_context(|| format!("time output: {text}"))?;
+    let (user, sys) = line;
     Ok(Duration::from_secs_f64(user + sys))
+}
+
+fn time_values(line: &str) -> Option<(f64, f64)> {
+    let mut parts = line.split_whitespace();
+    let user = parts.next()?.parse().ok()?;
+    let sys = parts.next()?.parse().ok()?;
+    Some((user, sys))
 }

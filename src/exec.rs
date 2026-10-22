@@ -14,9 +14,9 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct SolutionRun {
     pub fname: String,
-    pub score: u32,
-    pub total: u32,
-    pub expected: Option<u32>,
+    pub score: f64,
+    pub total: f64,
+    pub expected: Option<f64>,
 }
 
 pub struct AnswerReport {
@@ -52,7 +52,7 @@ pub fn validate_tests(pkg: &Package, quiet: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
+pub fn run_solutions(pkg: &Package, only: Option<&str>) -> Result<Vec<SolutionRun>> {
     if pkg.meta.solutions.is_empty() {
         return Ok(Vec::new());
     }
@@ -66,6 +66,9 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
     let judge = build_judge(pkg, &work)?;
     let mut out = Vec::new();
     for sol in &pkg.meta.solutions {
+        if only.is_some_and(|name| name != sol.fname) {
+            continue;
+        }
         let src = pkg.root.join("solutions").join(&sol.fname);
         let bin = compile_cpp(
             &src,
@@ -81,6 +84,11 @@ pub fn run_solutions(pkg: &Package) -> Result<Vec<SolutionRun>> {
             total,
             expected: sol.score,
         });
+    }
+    if let Some(name) = only {
+        if out.is_empty() {
+            bail!("solution not found: {name}");
+        }
     }
     Ok(out)
 }
@@ -189,7 +197,7 @@ fn model_solution(pkg: &Package, solution: Option<&str>) -> Result<String> {
     pkg.meta
         .solutions
         .iter()
-        .find(|s| s.score == Some(total))
+        .find(|s| s.score.is_some_and(|score| (score - total).abs() < 0.001))
         .map(|s| s.fname.clone())
         .ok_or_else(|| anyhow::anyhow!("model solution not found"))
 }
@@ -242,11 +250,9 @@ fn build_judge(pkg: &Package, work: &TempDir) -> Result<Judge> {
         None
     };
     let interactor = if kind == "interactor" {
-        Some(compile_cpp(
+        Some(compile_interactor(
             &pkg.root.join("interactor.cpp"),
             &work.path().join("interactor"),
-            &[],
-            true,
         )?)
     } else {
         None
@@ -287,18 +293,28 @@ fn run_on_tests(
     for &id in tests {
         let input = pkg.root.join(format!("tests/{id:03}i.txt"));
         let answer = pkg.root.join(format!("tests/{id:03}o.txt"));
-        let ok = match judge.kind.as_str() {
-            "simple" => run_simple(solution, &input, &answer, limits)?,
+        let percent = match judge.kind.as_str() {
+            "simple" => {
+                if run_simple(solution, &input, &answer, limits)? {
+                    100
+                } else {
+                    0
+                }
+            }
             "checker" => {
                 let outp = work.path().join(format!("{id:03}.out"));
-                run_checker(
+                if run_checker(
                     judge.checker.as_ref().unwrap(),
                     &input,
                     &answer,
                     solution,
                     &outp,
                     limits,
-                )?
+                )? {
+                    100
+                } else {
+                    0
+                }
             }
             "interactor" => run_interactor(
                 judge.interactor.as_ref().unwrap(),
@@ -311,7 +327,7 @@ fn run_on_tests(
             .with_context(|| format!("solution {} test {id:03}", solution.display()))?,
             other => bail!("unknown testing {other}"),
         };
-        out.push(if ok { TestVerdict::Ok } else { TestVerdict::Wa });
+        out.push(TestVerdict { percent });
     }
     Ok(out)
 }
@@ -356,7 +372,7 @@ fn run_interactor(
     solution: &Path,
     limits: Limits,
     mem_mib: u32,
-) -> Result<bool> {
+) -> Result<u8> {
     #[cfg(target_os = "linux")]
     {
         crate::interactive::run(interactor, solution, input, answer, limits, mem_mib)
@@ -377,12 +393,11 @@ fn run_failed(out: &run::Output, limits: Limits) -> bool {
     !out.status.success()
 }
 
-fn normalize(bytes: &[u8]) -> Vec<u8> {
-    let mut s = bytes.to_vec();
-    while s.last() == Some(&b'\n') {
-        s.pop();
-    }
-    s
+fn normalize(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(bytes)
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect()
 }
 
 pub(crate) fn compile_cpp(
@@ -391,8 +406,25 @@ pub(crate) fn compile_cpp(
     extra: &[PathBuf],
     include_testlib: bool,
 ) -> Result<PathBuf> {
+    compile_cpp_defines(src, out, extra, include_testlib, &[])
+}
+
+fn compile_interactor(src: &Path, out: &Path) -> Result<PathBuf> {
+    compile_cpp_defines(src, out, &[], true, &["-DPC_BASE_EXIT_CODE=50"])
+}
+
+fn compile_cpp_defines(
+    src: &Path,
+    out: &Path,
+    extra: &[PathBuf],
+    include_testlib: bool,
+    defines: &[&str],
+) -> Result<PathBuf> {
     let mut cmd = Command::new("g++");
     cmd.arg("-O2").arg("-std=c++17").arg(src);
+    for define in defines {
+        cmd.arg(define);
+    }
     if include_testlib {
         cmd.arg("-I").arg(write_testlib(out)?);
     }

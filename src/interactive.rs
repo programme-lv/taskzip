@@ -20,7 +20,7 @@ pub fn run(
     answer: &Path,
     limits: Limits,
     mem_mib: u32,
-) -> Result<bool> {
+) -> Result<u8> {
     let work = TempDir::new()?;
     let (mut judge, mut contestant) = commands(interactor, solution)?;
     judge
@@ -50,7 +50,7 @@ fn supervise(
     contestant: &mut Process,
     limits: Limits,
     diagnostics: &Path,
-) -> Result<bool> {
+) -> Result<u8> {
     let deadline = Instant::now() + limits.wall;
     loop {
         let solution = contestant.poll()?;
@@ -58,35 +58,36 @@ fn supervise(
             .poll()?
             .map(|exit| judge_verdict(exit, diagnostics))
             .transpose()?;
-        if verdict == Some(false) || solution.is_some_and(|exit| !exit.passed(limits.cpu)) {
-            return Ok(false);
+        if verdict == Some(0) || solution.is_some_and(|exit| !exit.passed(limits.cpu)) {
+            return Ok(0);
         }
-        if verdict == Some(true) && solution.is_some() {
-            return Ok(true);
+        if let (Some(percent), Some(_)) = (verdict, solution) {
+            return Ok(percent);
         }
         if Instant::now() >= deadline {
             if solution.is_some() && verdict.is_none() {
                 bail!("interactor wall timeout: {}", diagnostic(diagnostics));
             }
-            return Ok(false);
+            return Ok(0);
         }
         thread::sleep(Duration::from_millis(5));
     }
 }
 
-fn judge_verdict(exit: Exit, diagnostics: &Path) -> Result<bool> {
+fn judge_verdict(exit: Exit, diagnostics: &Path) -> Result<u8> {
     if exit.cpu > JUDGE_CPU {
         bail!("interactor CPU limit: {}", diagnostic(diagnostics));
     }
     match exit.status.code() {
-        Some(0) => Ok(true),
-        Some(1 | 2 | 8) => Ok(false),
+        Some(0) => Ok(100),
+        Some(code @ 50..=150) => Ok((code - 50) as u8),
+        Some(1 | 2 | 8) => Ok(0),
         Some(3) => bail!("interactor failure: {}", diagnostic(diagnostics)),
         Some(code) => bail!(
             "unsupported interactor exit {code}: {}",
             diagnostic(diagnostics)
         ),
-        None if matches!(exit.status.signal(), Some(libc::SIGPIPE | libc::SIGXFSZ)) => Ok(false),
+        None if matches!(exit.status.signal(), Some(libc::SIGPIPE | libc::SIGXFSZ)) => Ok(0),
         None => bail!("interactor {}: {}", exit.status, diagnostic(diagnostics)),
     }
 }
