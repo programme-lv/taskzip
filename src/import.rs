@@ -718,7 +718,7 @@ impl LioTask {
         dest: &Path,
         statement: &Path,
     ) -> Result<Vec<assist::StatementImage>> {
-        let mut images = Vec::new();
+        let mut images = BTreeMap::new();
         for path in files_under(&src.join("teksts"))? {
             let Some(ext) = path
                 .extension()
@@ -733,12 +733,35 @@ impl LioTask {
                     let data = fs::read(&path)?;
                     let (width_px, height_px) =
                         crate::imagesize::dimensions(&data).unwrap_or((0, 0));
-                    fs::write(statement.join(name), &data)?;
-                    images.push(assist::StatementImage {
-                        name: name.to_string_lossy().into_owned(),
-                        width_px,
-                        height_px,
-                    });
+                    let name = name.to_string_lossy().into_owned();
+                    fs::write(statement.join(&name), &data)?;
+                    images.insert(
+                        name.clone(),
+                        assist::StatementImage {
+                            name,
+                            width_px,
+                            height_px,
+                        },
+                    );
+                }
+                "svg" => {
+                    let data = fs::read(&path)?;
+                    let png_name = path
+                        .with_extension("png")
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned();
+                    let (width_px, height_px) =
+                        Self::render_svg(&data, &statement.join(&png_name))?;
+                    images.insert(
+                        png_name.clone(),
+                        assist::StatementImage {
+                            name: png_name,
+                            width_px,
+                            height_px,
+                        },
+                    );
                 }
                 "pdf" => {
                     let pdf_dir = dest.join("archive/statement-pdf");
@@ -748,8 +771,27 @@ impl LioTask {
                 _ => {}
             }
         }
+        let mut images: Vec<_> = images.into_values().collect();
         images.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(images)
+    }
+
+    fn render_svg(data: &[u8], out: &Path) -> Result<(u32, u32)> {
+        let tree = resvg::usvg::Tree::from_data(data, &resvg::usvg::Options::default())
+            .context("parse SVG")?;
+        let size = tree.size();
+        let scale = (1600.0 / f64::from(size.width())).clamp(1.0, 4.0);
+        let width = (f64::from(size.width()) * scale).round() as u32;
+        let height = (f64::from(size.height()) * scale).round() as u32;
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+            .with_context(|| format!("create {}x{} pixmap", width, height))?;
+        resvg::render(
+            &tree,
+            resvg::tiny_skia::Transform::from_scale(scale as f32, scale as f32),
+            &mut pixmap.as_mut(),
+        );
+        pixmap.save_png(out).context("write rendered SVG")?;
+        Ok((width, height))
     }
 
     fn write_judging(&self, src: &Path, dest: &Path) -> Result<()> {
