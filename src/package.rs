@@ -13,11 +13,13 @@ pub struct Package {
     pub id: String,
     pub files: BTreeSet<String>,
     pub meta: TaskMeta,
+    pub archive: Option<PathBuf>,
     _temp: Option<TempDir>,
 }
 
 pub fn open(path: &Path) -> Result<Package> {
     let (root, temp) = resolve_root(path)?;
+    let archive = temp.as_ref().map(|_| path.to_path_buf());
     let toml_path = root.join("task.toml");
     let content =
         fs::read_to_string(&toml_path).with_context(|| format!("read {}", toml_path.display()))?;
@@ -35,6 +37,7 @@ pub fn open(path: &Path) -> Result<Package> {
         root,
         files,
         meta,
+        archive,
         _temp: temp,
     })
 }

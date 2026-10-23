@@ -18,6 +18,8 @@ cd taskzip
 cargo install --path . && taskzip completions fish > ~/.config/fish/completions/taskzip.fish
 ```
 
+PDF figure conversion needs `pdftoppm` from `poppler-utils`; SVG conversion is built in.
+
 Ensure `~/.cargo/bin` is on your `PATH`, then run:
 
 ```bash
@@ -35,7 +37,8 @@ taskzip tests generate <package> [--out DIR] [--write] [--force]
 taskzip tests answers <package> [--in DIR] [--out DIR] [--write] [--solution FNAME]
 taskzip tests validate <package>
 taskzip import lio2024 <src> <dest> [--provider PROVIDER] [--year YEAR] [--stage STAGE] [--division DIVISION]... [--authors NAMES] [--skip-ai-import]
-taskzip verify <package> [--solution FNAME]
+taskzip score <package> [--write] [--solution FNAME] [--model-solution FNAME] [--jobs N] [--no-cache]
+taskzip verify <package> [--solution FNAME] [--model-solution FNAME] [--jobs N] [--no-cache]
 ```
 
 `<package>` is a task directory or a `.zip` archive. Defaults to `.` (current directory).
@@ -53,15 +56,17 @@ Fish loads the file in new sessions. Run `source ~/.config/fish/completions/task
 
 `tests generate` reads `testspec/tests.txt` and writes candidate inputs to `--out` (default `.taskzip/generated`). Use `--write` to overwrite `tests/` instead. Manifest line *N* becomes test `NNN`; blank lines and `#` comments are rejected. Cached inputs live under `$XDG_CACHE_HOME/taskzip/generate/` (or `~/.cache/taskzip/generate/`); a line is regenerated only when its cache key (generator or manual source plus manifest line) or stored checksum changes. Use `--force` to bypass the cache.
 
-`tests answers` runs the model solution on `NNNi.txt` inputs from `--in` (default `.taskzip/generated`) and writes matching `NNNo.txt` files to `--out` (default: same directory). Use `--write` to read from and write to `tests/`. The model solution defaults to the first `[[solutions]]` entry whose `score` equals `scoring.total`; use `--solution` to choose one explicitly. Interactive tasks have no model solution: `tests answers` compiles and runs `testspec/answer.cpp` when present (input on stdin, answer on stdout, 60 s wall per test) and otherwise writes empty answers; `--solution` is rejected.
+`tests answers` runs the model solution on `NNNi.txt` inputs from `--in` (default `.taskzip/generated`) and writes matching `NNNo.txt` files to `--out` (default: same directory). Use `--write` to read from and write to `tests/`. The model solution is selected with `--model-solution` (or `--solution`); without either, the first `[[solutions]]` entry whose `score` equals the task total is used. Interactive tasks have no model solution: `tests answers` compiles and runs `testspec/answer.cpp` when present (input on stdin, answer on stdout, 60 s wall per test) and otherwise writes empty answers; `--solution` is rejected.
 
 `import lio2024` converts an LIO 2024 task directory or `.zip` with `task.yaml` and `tests_archive` into a TaskZip package. `<dest>` must be an existing parent directory, and `<dest>/<id>` must not exist. A task with id `foo` is written to `<dest>/foo/task.toml`.
 
 The importer prompts for missing origin metadata. Stage choices are `school`, `municipal`, `national`, and `selection`. Age-group choices are `junior`, `senior`, and both; repeat `--division junior|senior` to select groups in scripts. Year accepts `YYYY` or an academic-year form such as `2025/2026`, which is stored as `2026`; valid years run from 1986 through the current year. Use the olympiad edition year even when a school or warm-up stage took place late in the previous calendar year. Authors are optional and comma-separated. `--year`, `--stage`, `--division`, and `--authors` avoid prompts in scripts.
 
-By default, import sends the single `teksts/*.typ` source, available image filenames, and each image's pixel dimensions to an AI provider for story, input, output, subtask descriptions, classification metadata, and per-solution score estimates. Interactive imports extract a communication section instead of input and output, plus any communication example tables as `examples/NNN.txt` traces and optional `examples/NNN.md` explanations. If the source has no example table, add the traces by hand. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections, subtask restrictions, difficulty, and a small set of classification tags are written to the package. Source prose is not translated or corrected. Interactive imports copy `interactor.cpp` and write an answer file for every test (empty when the source has none).
+By default, import sends the single `teksts/*.typ` source, available image filenames, and each image's pixel dimensions to an AI provider for story, input, output, subtask descriptions, and classification metadata. Import does not estimate solution scores: run `taskzip score --write` to measure them. Interactive imports extract a communication section instead of input and output, plus any communication example tables as `examples/NNN.txt` traces and optional `examples/NNN.md` explanations. If the source has no example table, add the traces by hand. Typst math is converted to KaTeX-compatible LaTeX inside `$...$`. Statement sections, subtask restrictions, difficulty, and a small set of classification tags are written to the package. Source prose is not translated or corrected. Interactive imports copy `interactor.cpp` and write an answer file for every test (empty when the source has none).
 
-Statement PNG/JPEG/WebP files are copied unchanged. SVG figures are rasterized to PNG (at least 1600 px wide, unless the SVG is already larger), replacing a same-named raster file, so the statement and the AI prompt use ordinary raster images.
+Statement PNG/JPEG/WebP files are copied unchanged. SVG figures are rasterized to PNG (at least 1600 px wide, unless the SVG is already larger), replacing a same-named raster file. PDF figures referenced by the statement are rasterized with `pdftoppm` (poppler-utils), also replacing a same-named raster. Unreferenced PDFs are kept in `archive/statement-pdf/` as before. The importer warns about missing or unsupported referenced figures, multiple raster formats for one figure, identical image contents under different names, and source SVGs/PDFs shadowing stale same-named PNGs.
+
+`check` also validates Markdown image references in statements, warns about image widths not expressed in `em`, and warns about identical statement image contents.
 
 Supported providers are OpenAI (`openai`) and DeepSeek (`deepseek`). The provider is chosen from `--provider`, then `TASKZIP_PROVIDER`, then the config file default, then OpenAI. The API key is read from the provider environment variable (`OPENAI_API_KEY` or `DEEPSEEK_API_KEY`), which wins over the stored key, then from the config file. Models default to `gpt-5.6-luna` for OpenAI and `deepseek-flash` (DeepSeek V4.1 Flash) for DeepSeek; override with `OPENAI_MODEL`/`DEEPSEEK_MODEL` or the stored model.
 
@@ -74,9 +79,11 @@ taskzip import lio2024 path/to/source path/to/dest
 
 With `provider = "deepseek"` stored, the import above uses `deepseek-flash` with the stored key. A `.env` file is loaded too. Use `--skip-ai-import` for an offline import that keeps the related TODOs.
 
-AI answers that fail validation (for example a wrong subtask count or an out-of-range difficulty) are sent back to the model to repair, up to two times, before the import fails. Classification slugs are checked against the TaskZip vocabulary: unknown slugs are dropped, and the rest are kept. After importing, check `archive/import-metadata.json` for the provider, model, prompt fingerprint, token usage, dropped and suggested slugs, and any uncertainties or questions the model reported. Uncertainty items, dropped or suggested slugs, and review warnings are also added to the generated `readme.md` TODO list, as is a request to verify partial solution scores. The import never stores model doubt in `task.toml`.
+AI answers that fail validation (for example a wrong subtask count or an out-of-range difficulty) are sent back to the model to repair, up to two times, before the import fails. Classification slugs are checked against the TaskZip vocabulary: unknown slugs are dropped, and the rest are kept. After importing, check `archive/import-metadata.json` for the provider, model, prompt fingerprint, token usage, dropped and suggested slugs, and any uncertainties or questions the model reported. Uncertainty items, dropped or suggested slugs, and review warnings are also added to the generated `readme.md` TODO list, together with a request to measure solution scores. The import never stores model doubt or estimated scores in `task.toml`.
 
-`verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set. It reports every solution whose score differs, and `--solution FNAME` runs only one solution. Each validator run receives its test's containing subtask as `--group <index>`.
+`score` runs every registered solution (or one selected with `--solution`) against the official tests and prints the measured score. `--write` stores the measured values in `task.toml`; it requires an unpacked directory, not a `.zip`. `--model-solution FNAME` runs that solution first. Results are cached per solution, test data, judge/validator, limits, and runner version under `$XDG_CACHE_HOME/taskzip/score/` (or `~/.cache/taskzip/score/`); statement-only edits do not invalidate the cache. Use `--no-cache` to bypass it and `--jobs N` to bound parallel test execution (`0` uses available CPUs). CPU limits are measured per process, so bounded concurrency does not change the measured CPU time.
+
+`verify` runs conformance checks, optional validator, solution runs, and compares scores with `[[solutions]].score` when set. It reports every solution whose score differs, and `--solution FNAME` runs only one solution. `--model-solution FNAME` runs that solution first and fails unless it earns full marks. Each validator run receives its test's containing subtask as `--group <index>`.
 
 ## Layout
 

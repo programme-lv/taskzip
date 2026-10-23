@@ -756,8 +756,11 @@ score = 50
 ```
 
 The `score` field is descriptive.
-TaskZip does not require import tooling to run the solution and prove the
-score during import.
+Import tooling SHOULD leave it absent rather than estimate it from source
+code. Tooling that verifies packages SHOULD measure the score by running the
+solution against the official tests and MAY write the measured value back.
+A solution without a recorded score is unverified, not expected to score
+zero.
 
 == Interactive tasks <sec:interactor>
 

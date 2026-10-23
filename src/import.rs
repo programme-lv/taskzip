@@ -6,10 +6,17 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 use std::time::Instant;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 use zip::ZipArchive;
+
+struct StatementAssets {
+    images: Vec<assist::StatementImage>,
+    rewrites: Vec<(String, String)>,
+    warnings: Vec<String>,
+}
 
 #[derive(Debug)]
 pub struct LioOrigin {
@@ -261,7 +268,7 @@ impl LioTask {
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<()> {
-        let (review, partial_scores, has_examples) =
+        let (review, has_examples) =
             self.write_package(src, dest, provider, skip_ai_import, on_progress)?;
         self.write_code(src, dest, on_progress)?;
         stage(on_progress, 0, "write archive");
@@ -278,7 +285,7 @@ impl LioTask {
             review.as_ref(),
             self.testing_kind == "interactor",
             has_examples,
-            partial_scores,
+            !self.solutions.is_empty(),
         );
         Ok(())
     }
@@ -290,20 +297,22 @@ impl LioTask {
         provider: assist::Provider,
         skip_ai_import: bool,
         on_progress: &mut impl FnMut(Event),
-    ) -> Result<(Option<assist::ImportReview>, bool, bool)> {
+    ) -> Result<(Option<assist::ImportReview>, bool)> {
         let statement = dest.join("statement");
         fs::create_dir_all(&statement)?;
-        let images = self.copy_statement_assets(src, dest, &statement)?;
+        let assets = self.copy_statement_assets(src, dest, &statement)?;
+        for warning in &assets.warnings {
+            detail(on_progress, 1, format!("warning: {warning}"));
+        }
         let ai = if skip_ai_import {
             None
         } else {
-            Some(self.import_ai(src, &images, provider, on_progress)?)
+            Some(self.import_ai(src, &assets.images, &assets.rewrites, provider, on_progress)?)
         };
         let descriptions = ai.as_ref().map(|parts| parts.subtasks.as_slice());
         let metadata = ai.as_ref().map(|parts| &parts.metadata);
-        let solutions = ai.as_ref().map(|parts| parts.solutions.as_slice());
         stage(on_progress, 0, "write meta");
-        self.write_meta(dest, descriptions, metadata, solutions)?;
+        self.write_meta(dest, descriptions, metadata)?;
         detail(on_progress, 1, "task.toml");
         if let Some(parts) = &ai {
             self.write_import_metadata(dest, &parts.review)?;
@@ -311,31 +320,41 @@ impl LioTask {
         stage(on_progress, 0, "write tests");
         self.write_tests(dest)?;
         detail(on_progress, 1, self.tests_summary());
-        self.write_statement(dest, &images, ai.as_ref(), skip_ai_import, on_progress)?;
+        self.write_statement(
+            dest,
+            &assets.images,
+            &assets.rewrites,
+            ai.as_ref(),
+            skip_ai_import,
+            on_progress,
+        )?;
         self.write_examples(dest, ai.as_ref())?;
         let review = ai.as_ref().map(|parts| &parts.review);
         let interactive = self.testing_kind == "interactor";
         let has_examples = ai.as_ref().is_some_and(|parts| !parts.examples.is_empty());
-        let partial_scores = ai.as_ref().is_some_and(|parts| {
-            parts
-                .solutions
-                .iter()
-                .any(|solution| solution.subtasks.len() < self.subtask_count())
-        });
+        let has_solutions = !self.solutions.is_empty();
         if !todo_items(
             !skip_ai_import,
             review,
             interactive,
             has_examples,
-            partial_scores,
+            has_solutions,
+            &assets.warnings,
         )
         .is_empty()
         {
             stage(on_progress, 0, "write readme");
-            self.write_readme(dest, !skip_ai_import, review, has_examples, partial_scores)?;
+            self.write_readme(
+                dest,
+                !skip_ai_import,
+                review,
+                has_examples,
+                has_solutions,
+                &assets.warnings,
+            )?;
             detail(on_progress, 1, "readme.md");
         }
-        Ok((ai.map(|parts| parts.review), partial_scores, has_examples))
+        Ok((ai.map(|parts| parts.review), has_examples))
     }
 
     fn write_examples(&self, dest: &Path, ai: Option<&assist::StatementParts>) -> Result<()> {
@@ -418,11 +437,10 @@ impl LioTask {
         dest: &Path,
         descriptions: Option<&[String]>,
         metadata: Option<&assist::TaskMetadata>,
-        solutions: Option<&[assist::SolutionEstimate]>,
     ) -> Result<()> {
         fs::write(
             dest.join("task.toml"),
-            self.task_toml(descriptions, metadata, solutions)?,
+            self.task_toml(descriptions, metadata)?,
         )?;
         Ok(())
     }
@@ -431,7 +449,6 @@ impl LioTask {
         &self,
         descriptions: Option<&[String]>,
         metadata: Option<&assist::TaskMetadata>,
-        solutions: Option<&[assist::SolutionEstimate]>,
     ) -> Result<String> {
         let official_count = self.tests.iter().filter(|t| t.group != 0).count();
         let mut out = String::new();
@@ -446,60 +463,20 @@ impl LioTask {
         self.write_origin(&mut out);
         write_metadata(&mut out, metadata);
         out.push_str(&self.subtasks_toml(descriptions)?);
-        out.push_str(&self.solutions_toml(solutions)?);
+        out.push_str(&self.solutions_toml());
         if official_count == 0 {
             bail!("no official tests");
         }
         Ok(out)
     }
 
-    fn solutions_toml(&self, estimates: Option<&[assist::SolutionEstimate]>) -> Result<String> {
+    fn solutions_toml(&self) -> String {
         let mut out = String::new();
         for fname in &self.solutions {
             out.push_str("[[solutions]]\n");
-            out.push_str(&format!("fname = {}\n", toml_string(fname)));
-            if let Some(items) = estimates {
-                let estimate = items
-                    .iter()
-                    .find(|item| item.fname == *fname)
-                    .ok_or_else(|| anyhow::anyhow!("missing solution estimate: {fname}"))?;
-                self.write_solution_estimate(&mut out, &estimate.subtasks)?;
-            } else if fname.to_lowercase().contains("ok") {
-                let subtasks: Vec<_> = (1..=self.subtask_count() as u32).collect();
-                self.write_solution_estimate(&mut out, &subtasks)?;
-            }
-            out.push('\n');
+            out.push_str(&format!("fname = {}\n\n", toml_string(fname)));
         }
-        Ok(out)
-    }
-
-    fn write_solution_estimate(&self, out: &mut String, subtasks: &[u32]) -> Result<()> {
-        out.push_str(&format!("subtasks = {}\n", number_array(subtasks)));
-        out.push_str(&format!("score = {}\n", self.score_for_subtasks(subtasks)?));
-        Ok(())
-    }
-
-    fn score_for_subtasks(&self, subtasks: &[u32]) -> Result<f64> {
-        let source_ids: Vec<_> = self
-            .subtask_points
-            .iter()
-            .enumerate()
-            .skip(1)
-            .filter(|(_, points)| **points != 0)
-            .map(|(id, _)| id as u32)
-            .collect();
-        let selected: Vec<_> = subtasks
-            .iter()
-            .map(|id| source_ids.get(*id as usize - 1).copied())
-            .collect::<Option<_>>()
-            .ok_or_else(|| anyhow::anyhow!("solution subtask out of range"))?;
-        let points: u32 = self
-            .groups
-            .iter()
-            .filter(|g| g.id != 0 && selected.contains(&g.subtask))
-            .map(|g| g.points)
-            .sum();
-        Ok(f64::from(points))
+        out
     }
 
     fn write_origin(&self, out: &mut String) {
@@ -569,7 +546,8 @@ impl LioTask {
         ai_imported: bool,
         review: Option<&assist::ImportReview>,
         has_examples: bool,
-        partial_scores: bool,
+        has_solutions: bool,
+        warnings: &[String],
     ) -> Result<()> {
         let mut text = String::from("## TODO\n\n");
         for item in todo_items(
@@ -577,7 +555,8 @@ impl LioTask {
             review,
             self.testing_kind == "interactor",
             has_examples,
-            partial_scores,
+            has_solutions,
+            warnings,
         ) {
             text.push_str(&format!("- [ ] {item}\n"));
         }
@@ -652,19 +631,20 @@ impl LioTask {
         &self,
         src: &Path,
         images: &[assist::StatementImage],
+        rewrites: &[(String, String)],
         provider: assist::Provider,
         on_progress: &mut impl FnMut(Event),
     ) -> Result<assist::StatementParts> {
         stage(on_progress, 0, "import with AI");
-        let source = read_typ_source(src, self.statement.as_deref())?;
-        let solutions = read_solution_sources(src, &self.solutions)?;
+        let mut source = read_typ_source(src, self.statement.as_deref())?;
+        for (from, to) in rewrites {
+            source = source.replace(from, to);
+        }
         let parts = assist::import_statement(
             provider,
             &source,
             images,
             self.subtask_count(),
-            self.cpu_ms,
-            &solutions,
             self.testing_kind == "interactor",
             |event| report_statement_event(on_progress, event),
         )?;
@@ -683,6 +663,7 @@ impl LioTask {
         &self,
         dest: &Path,
         images: &[assist::StatementImage],
+        rewrites: &[(String, String)],
         ai: Option<&assist::StatementParts>,
         skip: bool,
         on_progress: &mut impl FnMut(Event),
@@ -698,10 +679,11 @@ impl LioTask {
         );
         let path = dest.join("statement/lv.md");
         if let Some(parts) = ai {
-            fs::write(
-                &path,
-                statement_markdown(parts, self.testing_kind == "interactor"),
-            )?;
+            let mut markdown = statement_markdown(parts, self.testing_kind == "interactor");
+            for (from, to) in rewrites {
+                markdown = markdown.replace(from, to);
+            }
+            fs::write(&path, markdown)?;
         } else {
             fs::write(
                 &path,
@@ -717,8 +699,9 @@ impl LioTask {
         src: &Path,
         dest: &Path,
         statement: &Path,
-    ) -> Result<Vec<assist::StatementImage>> {
-        let mut images = BTreeMap::new();
+    ) -> Result<StatementAssets> {
+        let mut groups: BTreeMap<String, Vec<(String, PathBuf)>> = BTreeMap::new();
+        let mut warnings = Vec::new();
         for path in files_under(&src.join("teksts"))? {
             let Some(ext) = path
                 .extension()
@@ -727,53 +710,118 @@ impl LioTask {
             else {
                 continue;
             };
-            let name = path.file_name().unwrap();
-            match ext.as_str() {
-                "png" | "jpg" | "jpeg" | "webp" => {
-                    let data = fs::read(&path)?;
-                    let (width_px, height_px) =
-                        crate::imagesize::dimensions(&data).unwrap_or((0, 0));
-                    let name = name.to_string_lossy().into_owned();
-                    fs::write(statement.join(&name), &data)?;
-                    images.insert(
-                        name.clone(),
-                        assist::StatementImage {
-                            name,
-                            width_px,
-                            height_px,
-                        },
-                    );
-                }
-                "svg" => {
-                    let data = fs::read(&path)?;
-                    let png_name = path
-                        .with_extension("png")
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned();
-                    let (width_px, height_px) =
-                        Self::render_svg(&data, &statement.join(&png_name))?;
-                    images.insert(
-                        png_name.clone(),
-                        assist::StatementImage {
-                            name: png_name,
-                            width_px,
-                            height_px,
-                        },
-                    );
-                }
-                "pdf" => {
-                    let pdf_dir = dest.join("archive/statement-pdf");
-                    fs::create_dir_all(&pdf_dir)?;
-                    fs::copy(&path, pdf_dir.join("lv.pdf"))?;
-                }
-                _ => {}
+            if supported_asset(&ext) {
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
+                    .to_lowercase();
+                groups.entry(stem).or_default().push((ext, path));
+            } else if unsupported_asset(&ext) {
+                warnings.push(format!(
+                    "unsupported figure format {}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ));
             }
         }
+        let typ = read_typ_source(src, self.statement.as_deref())?;
+        let refs = image_references(&typ);
+        let mut images = BTreeMap::new();
+        let mut rewrites = Vec::new();
+        for files in groups.values() {
+            let Some((ext, path)) = preferred_asset(files, &refs) else {
+                continue;
+            };
+            if ext == "pdf" && !pdf_is_figure(files, &refs) {
+                copy_pdf_archive(path, ext, dest)?;
+                continue;
+            }
+            self.copy_preferred_asset(
+                path,
+                ext,
+                files,
+                dest,
+                statement,
+                &mut images,
+                &mut rewrites,
+                &mut warnings,
+            )?;
+        }
+        warnings.extend(audit_image_references(&refs, &src.join("teksts")));
+        warnings.extend(duplicate_image_warnings(&images, statement)?);
         let mut images: Vec<_> = images.into_values().collect();
         images.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(images)
+        Ok(StatementAssets {
+            images,
+            rewrites,
+            warnings,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn copy_preferred_asset(
+        &self,
+        path: &Path,
+        ext: &str,
+        files: &[(String, PathBuf)],
+        dest: &Path,
+        statement: &Path,
+        images: &mut BTreeMap<String, assist::StatementImage>,
+        rewrites: &mut Vec<(String, String)>,
+        warnings: &mut Vec<String>,
+    ) -> Result<()> {
+        let original = path.file_name().unwrap().to_string_lossy().into_owned();
+        match ext {
+            "svg" | "pdf" => {
+                let png_name = path
+                    .with_extension("png")
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                if files.iter().any(|(e, _)| is_raster(e)) {
+                    warnings.push(format!("using {original} instead of same-named raster"));
+                }
+                let (width_px, height_px) = if ext == "svg" {
+                    Self::render_svg(&fs::read(path)?, &statement.join(&png_name))?
+                } else {
+                    Self::render_pdf(path, &statement.join(&png_name))?
+                };
+                copy_pdf_archive(path, ext, dest)?;
+                rewrites.push((original.clone(), png_name.clone()));
+                images.insert(
+                    png_name.clone(),
+                    assist::StatementImage {
+                        name: png_name,
+                        width_px,
+                        height_px,
+                    },
+                );
+            }
+            _ => {
+                if files.iter().filter(|(e, _)| is_raster(e)).count() > 1 {
+                    warnings.push(format!(
+                        "multiple raster formats for {}; using {original}",
+                        path.file_stem().unwrap_or_default().to_string_lossy()
+                    ));
+                }
+                let data = fs::read(path)?;
+                let (width_px, height_px) = crate::imagesize::dimensions(&data).unwrap_or((0, 0));
+                if width_px == 0 || height_px == 0 {
+                    warnings.push(format!("cannot read image size for {original}"));
+                }
+                fs::write(statement.join(&original), &data)?;
+                images.insert(
+                    original.clone(),
+                    assist::StatementImage {
+                        name: original,
+                        width_px,
+                        height_px,
+                    },
+                );
+            }
+        }
+        Ok(())
     }
 
     fn render_svg(data: &[u8], out: &Path) -> Result<(u32, u32)> {
@@ -792,6 +840,32 @@ impl LioTask {
         );
         pixmap.save_png(out).context("write rendered SVG")?;
         Ok((width, height))
+    }
+
+    fn render_pdf(path: &Path, out: &Path) -> Result<(u32, u32)> {
+        let prefix = out.with_extension("");
+        let status = Command::new("pdftoppm")
+            .args([
+                "-png",
+                "-singlefile",
+                "-f",
+                "1",
+                "-l",
+                "1",
+                "-scale-to-x",
+                "1600",
+                "-scale-to-y",
+                "-1",
+            ])
+            .arg(path)
+            .arg(&prefix)
+            .status()
+            .context("run pdftoppm (install poppler-utils)")?;
+        if !status.success() {
+            bail!("pdftoppm failed on {}", path.display());
+        }
+        let data = fs::read(out).with_context(|| format!("read {}", out.display()))?;
+        crate::imagesize::dimensions(&data).ok_or_else(|| anyhow::anyhow!("read rendered PDF size"))
     }
 
     fn write_judging(&self, src: &Path, dest: &Path) -> Result<()> {
@@ -871,6 +945,119 @@ impl LioTask {
     }
 }
 
+fn supported_asset(ext: &str) -> bool {
+    matches!(ext, "png" | "jpg" | "jpeg" | "webp" | "svg" | "pdf")
+}
+
+fn unsupported_asset(ext: &str) -> bool {
+    matches!(ext, "gif" | "bmp" | "tif" | "tiff" | "eps" | "ps")
+}
+
+fn is_raster(ext: &str) -> bool {
+    matches!(ext, "png" | "jpg" | "jpeg" | "webp")
+}
+
+fn preferred_asset<'a>(
+    files: &'a [(String, PathBuf)],
+    refs: &[String],
+) -> Option<(&'a String, &'a PathBuf)> {
+    let order: &[&str] = if pdf_is_figure(files, refs) {
+        &["svg", "pdf", "png", "jpg", "jpeg", "webp"]
+    } else {
+        &["svg", "png", "jpg", "jpeg", "webp", "pdf"]
+    };
+    order.iter().find_map(|wanted| {
+        files
+            .iter()
+            .find(|(ext, _)| ext == wanted)
+            .map(|(ext, path)| (ext, path))
+    })
+}
+
+fn pdf_is_figure(files: &[(String, PathBuf)], refs: &[String]) -> bool {
+    let Some((_, pdf)) = files.iter().find(|(ext, _)| ext == "pdf") else {
+        return false;
+    };
+    let stem = pdf.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+    let name = pdf.file_name().and_then(|s| s.to_str()).unwrap_or_default();
+    refs.iter().any(|reference| {
+        reference == name
+            || Path::new(reference)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s == stem)
+    })
+}
+
+fn copy_pdf_archive(path: &Path, ext: &str, dest: &Path) -> Result<()> {
+    if ext != "pdf" {
+        return Ok(());
+    }
+    let pdf_dir = dest.join("archive/statement-pdf");
+    fs::create_dir_all(&pdf_dir)?;
+    fs::copy(path, pdf_dir.join("lv.pdf"))?;
+    Ok(())
+}
+
+fn image_references(typ: &str) -> Vec<String> {
+    let Ok(re) = regex::Regex::new(r#"image\(\s*["']([^"']+)["']"#) else {
+        return Vec::new();
+    };
+    re.captures_iter(typ)
+        .map(|caps| caps[1].trim().to_string())
+        .collect()
+}
+
+fn audit_image_references(refs: &[String], teksts: &Path) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for reference in refs {
+        let reference = reference.as_str();
+        if reference.starts_with("http://")
+            || reference.starts_with("https://")
+            || reference.starts_with("data:")
+            || reference.starts_with("../")
+            || Path::new(reference).is_absolute()
+        {
+            continue;
+        }
+        if !teksts.join(reference).is_file() {
+            warnings.push(format!(
+                "referenced figure {reference} is missing under teksts/"
+            ));
+        }
+        let ext = Path::new(reference)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        if unsupported_asset(&ext) {
+            warnings.push(format!(
+                "referenced figure {reference} uses unsupported format"
+            ));
+        }
+    }
+    warnings
+}
+
+fn duplicate_image_warnings(
+    images: &BTreeMap<String, assist::StatementImage>,
+    statement: &Path,
+) -> Result<Vec<String>> {
+    let mut by_hash: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for name in images.keys() {
+        let data = fs::read(statement.join(name))?;
+        by_hash
+            .entry(crate::measure::sha256_hex(&data))
+            .or_default()
+            .push(name.clone());
+    }
+    Ok(by_hash
+        .into_values()
+        .filter(|names| names.len() > 1)
+        .map(|names| format!("identical image contents: {}", names.join(", ")))
+        .collect())
+}
+
 fn report_statement_event(on_progress: &mut impl FnMut(Event), event: assist::StatementEvent) {
     match event {
         assist::StatementEvent::Model(model) => {
@@ -926,20 +1113,23 @@ fn todo_items(
     review: Option<&assist::ImportReview>,
     interactive: bool,
     has_examples: bool,
-    partial_scores: bool,
+    has_solutions: bool,
+    warnings: &[String],
 ) -> Vec<String> {
     let mut items: Vec<String> = Vec::new();
     if !ai_imported {
         items.push("port statement from `archive/original/teksts/` to `statement/lv.md`".into());
         items.push("replace placeholder subtask descriptions".into());
-        items.push("review imported solution scores".into());
         items.push("set task difficulty and classification tags".into());
     }
-    if partial_scores {
-        items.push("verify estimated partial solution scores".into());
+    if has_solutions {
+        items.push("run `taskzip score --write` to measure solution scores".into());
     }
     if interactive && !has_examples {
         items.push("author interactive example traces under `examples/`".into());
+    }
+    for warning in warnings {
+        items.push(format!("resolve import warning: {warning}"));
     }
     if let Some(review) = review {
         for tag in &review.dropped_tags {
@@ -975,14 +1165,15 @@ fn report_todos(
     review: Option<&assist::ImportReview>,
     interactive: bool,
     has_examples: bool,
-    partial_scores: bool,
+    has_solutions: bool,
 ) {
     let items = todo_items(
         ai_imported,
         review,
         interactive,
         has_examples,
-        partial_scores,
+        has_solutions,
+        &[],
     );
     if items.is_empty() {
         return;
@@ -1300,18 +1491,6 @@ fn cpp_solutions(src: &Path) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn read_solution_sources(src: &Path, names: &[String]) -> Result<Vec<(String, String)>> {
-    names
-        .iter()
-        .map(|name| {
-            let path = src.join("risin").join(name);
-            let source =
-                fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-            Ok((name.clone(), source))
-        })
-        .collect()
-}
-
 fn has_visible_input(src: &Path) -> Result<bool> {
     for path in files_under(&src.join("teksts"))? {
         if path.extension().and_then(|s| s.to_str()) != Some("typ") {
@@ -1354,11 +1533,6 @@ fn string_array(items: &[String]) -> String {
     format!("[{}]", values.join(", "))
 }
 
-fn number_array(numbers: &[u32]) -> String {
-    let values: Vec<_> = numbers.iter().map(u32::to_string).collect();
-    format!("[{}]", values.join(", "))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1381,7 +1555,7 @@ mod tests {
             warnings: vec!["review pass unparsed: x".into()],
             ..Default::default()
         };
-        let items = todo_items(true, Some(&review), false, false, false);
+        let items = todo_items(true, Some(&review), false, false, false, &[]);
         for needle in [
             "bogus",
             "lerp",
@@ -1400,13 +1574,13 @@ mod tests {
     #[test]
     fn clean_ai_import_needs_no_readme() {
         let review = ImportReview::default();
-        assert!(todo_items(true, Some(&review), false, false, false).is_empty());
-        assert!(!todo_items(false, None, false, false, false).is_empty());
-        assert!(todo_items(false, None, true, false, false)
+        assert!(todo_items(true, Some(&review), false, false, false, &[]).is_empty());
+        assert!(!todo_items(false, None, false, false, false, &[]).is_empty());
+        assert!(todo_items(false, None, true, false, false, &[])
             .iter()
             .any(|item| item.contains("example traces")));
-        assert!(todo_items(true, Some(&review), false, false, true)
+        assert!(todo_items(true, Some(&review), false, false, true, &[])
             .iter()
-            .any(|item| item.contains("partial solution scores")));
+            .any(|item| item.contains("taskzip score --write")));
     }
 }

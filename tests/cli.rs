@@ -198,6 +198,47 @@ fn answers_fixture() {
 }
 
 #[test]
+fn score_writes_measured_scores_and_caches() {
+    if std::process::Command::new("g++")
+        .arg("--version")
+        .status()
+        .is_err()
+    {
+        return;
+    }
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("addtwo");
+    fs::create_dir(&root).unwrap();
+    copy_dir("tests/fixtures/addtwo", &root);
+    let task = fs::read_to_string(root.join("task.toml")).unwrap();
+    fs::write(
+        root.join("task.toml"),
+        task.replace("score = 2", "score = 1"),
+    )
+    .unwrap();
+    bin()
+        .arg("score")
+        .arg(&root)
+        .arg("--write")
+        .arg("--jobs")
+        .arg("2")
+        .env("XDG_CACHE_HOME", dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wrote 1 measured scores"));
+    let task = fs::read_to_string(root.join("task.toml")).unwrap();
+    assert!(task.lines().any(|line| line == "score = 2"));
+    fs::write(root.join("statement/en.md"), "Changed statement.\n").unwrap();
+    bin()
+        .arg("score")
+        .arg(&root)
+        .env("XDG_CACHE_HOME", dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cached 2"));
+}
+
+#[test]
 fn import_lio2024_fixture() {
     let dir = tempdir().unwrap();
     let src = dir.path().join("tiny");

@@ -192,7 +192,6 @@ const INPUT: &str = include_str!("../prompts/lio2024/input.md");
 const OUTPUT: &str = include_str!("../prompts/lio2024/output.md");
 const SUBTASKS: &str = include_str!("../prompts/lio2024/subtasks.md");
 const METADATA: &str = include_str!("../prompts/lio2024/metadata.md");
-const SOLUTION: &str = include_str!("../prompts/lio2024/solution.md");
 const REVIEW: &str = include_str!("../prompts/lio2024/review.md");
 const EXAMPLES: &str = include_str!("../prompts/lio2024/examples.md");
 
@@ -207,7 +206,6 @@ pub struct StatementParts {
     pub examples: Vec<InteractiveExample>,
     pub subtasks: Vec<String>,
     pub metadata: TaskMetadata,
-    pub solutions: Vec<SolutionEstimate>,
     pub usage: TokenUsage,
     pub review: ImportReview,
 }
@@ -265,11 +263,6 @@ pub struct TaskMetadata {
     pub difficulty: u8,
 }
 
-pub struct SolutionEstimate {
-    pub fname: String,
-    pub subtasks: Vec<u32>,
-}
-
 /// A statement image available to the converter, with its intrinsic pixel
 /// size when it could be read from the file header. Unknown sizes are zero.
 #[derive(Clone, Debug)]
@@ -315,8 +308,6 @@ pub fn import_statement(
     typ_source: &str,
     images: &[StatementImage],
     subtask_count: usize,
-    cpu_ms: u32,
-    solutions: &[(String, String)],
     interactive: bool,
     mut on_progress: impl FnMut(StatementEvent),
 ) -> Result<StatementParts> {
@@ -371,16 +362,6 @@ pub fn import_statement(
     review.uncertainties = found.uncertainties;
     review.questions = found.questions;
     review.suggested_tags = found.suggested_tags;
-    let (solutions, solution_usage) = estimate_solutions(
-        &mut chat,
-        solutions,
-        &subtasks,
-        cpu_ms,
-        interactive,
-        &mut on_progress,
-        &mut review.repairs,
-    )?;
-    usage += solution_usage;
     review.provider = provider.id().to_string();
     review.model = chat.model.clone();
     review.prompts_sha256 = prompts_hash();
@@ -393,7 +374,6 @@ pub fn import_statement(
         examples,
         subtasks,
         metadata,
-        solutions,
         usage,
         review,
     })
@@ -721,10 +701,6 @@ impl Chat {
             .push(Message::new("assistant", &response.content));
         Ok((response.content, response.usage, false))
     }
-
-    fn reset(&mut self) {
-        self.messages.truncate(1);
-    }
 }
 
 #[derive(Clone, Serialize)]
@@ -950,52 +926,6 @@ fn filter_tags(
     out
 }
 
-fn estimate_solutions(
-    chat: &mut Chat,
-    sources: &[(String, String)],
-    subtasks: &[String],
-    cpu_ms: u32,
-    interactive: bool,
-    on_progress: &mut impl FnMut(StatementEvent),
-    repairs: &mut Vec<RepairNote>,
-) -> Result<(Vec<SolutionEstimate>, TokenUsage)> {
-    let mut estimates = Vec::new();
-    let mut usage = TokenUsage::default();
-    let budget = solution_budget(cpu_ms, interactive);
-    for (fname, source) in sources {
-        chat.reset();
-        let prompt = render_solution(fname, source, subtasks, &budget)?;
-        let part = format!("solution {fname}");
-        let ids = ask_validated(
-            chat,
-            &part,
-            &prompt,
-            |raw| parse_solution_subtasks(raw, subtasks.len(), fname),
-            &mut usage,
-            on_progress,
-            repairs,
-        )?;
-        estimates.push(SolutionEstimate {
-            fname: fname.clone(),
-            subtasks: ids,
-        });
-    }
-    Ok((estimates, usage))
-}
-
-fn parse_solution_subtasks(raw: &str, count: usize, fname: &str) -> Result<Vec<u32>> {
-    let mut ids: Vec<u32> =
-        serde_json::from_str(strip_json_fence(raw)).context("parse solution subtasks JSON")?;
-    ids.sort_unstable();
-    if ids.iter().any(|id| *id == 0 || *id as usize > count) {
-        bail!("{fname}: solution subtask out of range");
-    }
-    if ids.windows(2).any(|pair| pair[0] == pair[1]) {
-        bail!("{fname}: duplicate solution subtask");
-    }
-    Ok(ids)
-}
-
 fn strip_json_fence(raw: &str) -> &str {
     let trimmed = raw.trim();
     let Some(rest) = trimmed.strip_prefix("```") else {
@@ -1042,39 +972,12 @@ fn render_metadata() -> Result<String> {
 fn prompts_hash() -> String {
     let mut hash = Sha256::new();
     for part in [
-        SYSTEM, FORMAT, STORY, TALK, INPUT, OUTPUT, SUBTASKS, METADATA, SOLUTION, REVIEW, EXAMPLES,
+        SYSTEM, FORMAT, STORY, TALK, INPUT, OUTPUT, SUBTASKS, METADATA, REVIEW, EXAMPLES,
     ] {
         hash.update(part.as_bytes());
         hash.update([0]);
     }
     format!("{:x}", hash.finalize())
-}
-
-fn solution_budget(cpu_ms: u32, interactive: bool) -> String {
-    if interactive {
-        "the interaction limits stated in the communication section, for example the maximum number of queries"
-            .to_string()
-    } else {
-        format!("{cpu_ms} milliseconds")
-    }
-}
-
-fn render_solution(fname: &str, source: &str, subtasks: &[String], budget: &str) -> Result<String> {
-    let subtasks = subtasks
-        .iter()
-        .enumerate()
-        .map(|(i, text)| format!("{}. {text}", i + 1))
-        .collect::<Vec<_>>()
-        .join("\n");
-    render_template(
-        SOLUTION,
-        &[
-            ("fname", fname),
-            ("source", source),
-            ("subtasks", &subtasks),
-            ("budget", budget),
-        ],
-    )
 }
 
 fn render_template(template: &str, values: &[(&str, &str)]) -> Result<String> {
