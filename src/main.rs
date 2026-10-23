@@ -5,6 +5,7 @@ use taskzip::convert;
 use taskzip::exec;
 use taskzip::generate;
 use taskzip::import;
+use taskzip::measure;
 use taskzip::package;
 use taskzip::progress;
 
@@ -117,6 +118,38 @@ enum Command {
         package: PathBuf,
         #[arg(long, help = "Verify only this solution filename")]
         solution: Option<String>,
+        #[arg(
+            long = "model-solution",
+            help = "Verify this solution first and require full marks"
+        )]
+        model_solution: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Parallel test jobs; 0 uses available CPUs"
+        )]
+        jobs: usize,
+        #[arg(long, help = "Do not read or write measured-result cache")]
+        no_cache: bool,
+    },
+    #[command(about = "Measure solution scores by running official tests")]
+    Score {
+        #[arg(default_value = ".")]
+        package: PathBuf,
+        #[arg(long, help = "Write measured scores to task.toml")]
+        write: bool,
+        #[arg(long, help = "Measure only this solution filename")]
+        solution: Option<String>,
+        #[arg(long = "model-solution", help = "Measure this solution first")]
+        model_solution: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Parallel test jobs; 0 uses available CPUs"
+        )]
+        jobs: usize,
+        #[arg(long, help = "Do not read or write measured-result cache")]
+        no_cache: bool,
     },
 }
 
@@ -151,11 +184,21 @@ enum TestsCommand {
         write: bool,
         #[arg(long, help = "Registered solution filename under solutions/")]
         solution: Option<String>,
+        #[arg(long = "model-solution", help = "Registered model solution filename")]
+        model_solution: Option<String>,
     },
     #[command(about = "Run testspec/validator.cpp, when present, on every official input")]
     Validate {
         #[arg(default_value = ".")]
         package: PathBuf,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Parallel test jobs; 0 uses available CPUs"
+        )]
+        jobs: usize,
+        #[arg(long, help = "Do not read or write measured-result cache")]
+        no_cache: bool,
     },
 }
 
@@ -180,7 +223,21 @@ fn main() -> Result<()> {
         Command::Completions { shell } => run_completions(shell),
         Command::Check { package } => run_check(package),
         Command::Tests { cmd } => run_tests(cmd),
-        Command::Verify { package, solution } => run_verify(package, solution),
+        Command::Verify {
+            package,
+            solution,
+            model_solution,
+            jobs,
+            no_cache,
+        } => run_verify(package, solution, model_solution, jobs, no_cache),
+        Command::Score {
+            package,
+            write,
+            solution,
+            model_solution,
+            jobs,
+            no_cache,
+        } => run_score(package, write, solution, model_solution, jobs, no_cache),
         Command::Import {
             format,
             src,
@@ -324,8 +381,13 @@ fn run_tests(cmd: TestsCommand) -> Result<()> {
             out,
             write,
             solution,
-        } => run_answers(package, input, out, write, solution),
-        TestsCommand::Validate { package } => run_validate(package),
+            model_solution,
+        } => run_answers(package, input, out, write, solution.or(model_solution)),
+        TestsCommand::Validate {
+            package,
+            jobs,
+            no_cache,
+        } => run_validate(package, jobs, no_cache),
     }
 }
 
@@ -349,10 +411,10 @@ fn run_generate(
     Ok(())
 }
 
-fn run_validate(package: PathBuf) -> Result<()> {
+fn run_validate(package: PathBuf, jobs: usize, no_cache: bool) -> Result<()> {
     let pkg = package::open(&package)?;
     check::check(&pkg)?;
-    exec::validate_tests(&pkg, false)?;
+    exec::validate_tests(&pkg, false, exec_options(jobs, no_cache))?;
     println!("ok: validator passed");
     Ok(())
 }
@@ -381,24 +443,126 @@ fn run_answers(
     Ok(())
 }
 
-fn run_verify(package: PathBuf, solution: Option<String>) -> Result<()> {
+fn run_verify(
+    package: PathBuf,
+    solution: Option<String>,
+    model_solution: Option<String>,
+    jobs: usize,
+    no_cache: bool,
+) -> Result<()> {
     let pkg = package::open(&package)?;
     let warns = check::check(&pkg)?;
     for w in warns {
         eprintln!("warn: {w}");
     }
-    exec::validate_tests(&pkg, true)?;
-    let rows = exec::run_solutions(&pkg, solution.as_deref())?;
-    let mut mismatches = Vec::new();
-    for r in &rows {
-        if let Some(message) = expected_score_mismatch(r) {
-            mismatches.push(message);
-        }
-    }
+    let opts = exec_options(jobs, no_cache);
+    exec::validate_tests(&pkg, true, opts)?;
+    let rows = measure_rows(&pkg, &solution, &model_solution, opts)?;
+    let mismatches: Vec<_> = rows.iter().filter_map(expected_score_mismatch).collect();
     if !mismatches.is_empty() {
         anyhow::bail!("{}", mismatches.join("\n"));
     }
     println!("ok: {} (solutions: {})", pkg.id, rows.len());
+    Ok(())
+}
+
+fn run_score(
+    package: PathBuf,
+    write: bool,
+    solution: Option<String>,
+    model_solution: Option<String>,
+    jobs: usize,
+    no_cache: bool,
+) -> Result<()> {
+    let pkg = package::open(&package)?;
+    check::check(&pkg)?;
+    if write && pkg.archive.is_some() {
+        anyhow::bail!("score --write requires an unpacked directory");
+    }
+    let opts = exec_options(jobs, no_cache);
+    let rows = measure_rows(&pkg, &solution, &model_solution, opts)?;
+    for row in &rows {
+        println!(
+            "{}: {:.2}/{:.0} (ran {}, cached {})",
+            row.fname, row.score, row.total, row.ran, row.cached
+        );
+    }
+    if write {
+        let scores: Vec<_> = rows
+            .iter()
+            .map(|row| (row.fname.clone(), row.score))
+            .collect();
+        measure::write_scores(&pkg.root.join("task.toml"), &scores)?;
+        println!("ok: wrote {} measured scores", scores.len());
+    } else {
+        println!("ok: measured {} solutions", rows.len());
+    }
+    Ok(())
+}
+
+fn exec_options(jobs: usize, no_cache: bool) -> measure::ExecOptions {
+    let jobs = match jobs {
+        0 => std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1),
+        n => n,
+    };
+    measure::ExecOptions {
+        jobs,
+        cache: !no_cache,
+    }
+}
+
+fn run_options<'a>(
+    solution: &'a Option<String>,
+    model: &'a Option<String>,
+    exec: measure::ExecOptions,
+) -> exec::RunOptions<'a> {
+    exec::RunOptions {
+        solution: solution.as_deref(),
+        model: model.as_deref(),
+        exec,
+    }
+}
+
+fn measure_rows(
+    pkg: &package::Package,
+    solution: &Option<String>,
+    model: &Option<String>,
+    opts: measure::ExecOptions,
+) -> Result<Vec<exec::SolutionRun>> {
+    if let (None, Some(name)) = (solution, model) {
+        let first = exec::run_solutions(
+            pkg,
+            &exec::RunOptions {
+                solution: Some(name),
+                model: Some(name),
+                exec: opts,
+            },
+        )?;
+        check_model_solution(&first, Some(name))?;
+    }
+    let rows = exec::run_solutions(pkg, &run_options(solution, model, opts))?;
+    check_model_solution(&rows, model.as_deref())?;
+    Ok(rows)
+}
+
+fn check_model_solution(rows: &[exec::SolutionRun], model: Option<&str>) -> Result<()> {
+    let Some(name) = model else {
+        return Ok(());
+    };
+    let row = rows
+        .iter()
+        .find(|row| row.fname == name)
+        .ok_or_else(|| anyhow::anyhow!("model solution not found: {name}"))?;
+    if row.score + 0.001 < row.total {
+        anyhow::bail!(
+            "{}: model solution scored {:.2}/{:.0}",
+            row.fname,
+            row.score,
+            row.total
+        );
+    }
     Ok(())
 }
 

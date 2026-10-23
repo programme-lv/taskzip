@@ -8,6 +8,7 @@ pub mod imagesize;
 pub mod import;
 #[cfg(target_os = "linux")]
 pub mod interactive;
+pub mod measure;
 pub mod meta;
 pub mod package;
 pub mod progress;

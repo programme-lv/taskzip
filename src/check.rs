@@ -3,7 +3,8 @@ use crate::package::Package;
 use crate::vocab;
 use anyhow::{bail, Result};
 use regex::Regex;
-use std::collections::BTreeSet;
+use sha2::Digest;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn preflight_generate(pkg: &Package) -> Result<()> {
     check_id(&pkg.meta)?;
@@ -28,10 +29,12 @@ pub fn check(pkg: &Package) -> Result<Vec<String>> {
     let tests = test_indices(pkg)?;
     check_scoring(pkg, &tests)?;
     check_testspec_manifest(pkg)?;
-    check_examples(pkg)?;
+    check_examples(pkg, &mut warns)?;
     check_solutions(pkg)?;
     check_attached(pkg)?;
     check_statement(pkg)?;
+    check_statement_images(pkg, &mut warns)?;
+    check_duplicate_images(pkg, &mut warns)?;
     check_dangling(pkg)?;
     check_origin(&pkg.meta, &mut warns)?;
     check_metadata(&pkg.meta, &mut warns)?;
@@ -225,7 +228,7 @@ fn check_test_file(pkg: &Package, path: &str, input: bool) -> Result<()> {
     check_text(path, &text, input)
 }
 
-fn check_examples(pkg: &Package) -> Result<()> {
+fn check_examples(pkg: &Package, warns: &mut Vec<String>) -> Result<()> {
     let interactive = pkg.meta.testing.kind == "interactor";
     let mut ids = Vec::new();
     for path in &pkg.files {
@@ -253,6 +256,9 @@ fn check_examples(pkg: &Package) -> Result<()> {
     ids.sort_unstable();
     ids.dedup();
     if ids.is_empty() {
+        if interactive {
+            warns.push("interactive task has no example traces".into());
+        }
         return Ok(());
     }
     if ids[0] != 1 {
@@ -371,6 +377,71 @@ fn check_statement(pkg: &Package) -> Result<()> {
                 bail!("unsanitized svg {path}");
             }
         }
+    }
+    Ok(())
+}
+
+fn check_statement_images(pkg: &Package, warns: &mut Vec<String>) -> Result<()> {
+    let re = Regex::new(r#"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)(?:\{([^}]*)\})?"#)?;
+    for path in pkg
+        .files
+        .iter()
+        .filter(|p| p.starts_with("statement/") && p.ends_with(".md"))
+    {
+        let text = crate::package::read_text(pkg, path)?;
+        for caps in re.captures_iter(&text) {
+            let target = caps[1].trim();
+            if target.starts_with("http://")
+                || target.starts_with("https://")
+                || target.starts_with("data:")
+                || target.starts_with('#')
+            {
+                continue;
+            }
+            let rel = target.trim_start_matches("./");
+            let file = if rel.starts_with("statement/") {
+                rel.to_string()
+            } else {
+                format!("statement/{rel}")
+            };
+            if !pkg.files.contains(&file) {
+                bail!("{path}: missing image {target}");
+            }
+            if let Some(attrs) = caps.get(2) {
+                if let Some(width) = attr_value(attrs.as_str(), "width") {
+                    if !width.ends_with("em") {
+                        warns.push(format!("{path}: image width {width} is not in em"));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn attr_value(attrs: &str, name: &str) -> Option<String> {
+    attrs.split(',').find_map(|item| {
+        let (key, value) = item.split_once('=')?;
+        (key.trim() == name).then(|| value.trim().to_string())
+    })
+}
+
+fn check_duplicate_images(pkg: &Package, warns: &mut Vec<String>) -> Result<()> {
+    let mut by_hash: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for path in pkg
+        .files
+        .iter()
+        .filter(|p| p.starts_with("statement/") && !p.ends_with(".md"))
+    {
+        let data = crate::package::read_file(pkg, path)?;
+        let hash = format!("{:x}", sha2::Sha256::digest(data));
+        by_hash.entry(hash).or_default().push(path.clone());
+    }
+    for paths in by_hash.values().filter(|paths| paths.len() > 1) {
+        warns.push(format!(
+            "statement images share identical content: {}",
+            paths.join(", ")
+        ));
     }
     Ok(())
 }

@@ -1,4 +1,5 @@
 use crate::check::test_indices;
+use crate::measure::{self, ExecOptions, VerdictCache};
 use crate::package::Package;
 use crate::run::{self, Limits};
 use crate::score::{self, TestVerdict};
@@ -6,6 +7,9 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -17,6 +21,14 @@ pub struct SolutionRun {
     pub score: f64,
     pub total: f64,
     pub expected: Option<f64>,
+    pub cached: u32,
+    pub ran: u32,
+}
+
+pub struct RunOptions<'a> {
+    pub solution: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub exec: ExecOptions,
 }
 
 pub struct AnswerReport {
@@ -24,7 +36,7 @@ pub struct AnswerReport {
     pub written: u32,
 }
 
-pub fn validate_tests(pkg: &Package, quiet: bool) -> Result<()> {
+pub fn validate_tests(pkg: &Package, quiet: bool, opts: ExecOptions) -> Result<()> {
     let validator = pkg.root.join("testspec/validator.cpp");
     if !validator.is_file() {
         return Ok(());
@@ -32,65 +44,160 @@ pub fn validate_tests(pkg: &Package, quiet: bool) -> Result<()> {
     let work = TempDir::new()?;
     let bin = compile_cpp(&validator, &work.path().join("validator"), &[], true)?;
     let subtasks = score::test_subtasks(pkg)?;
-    for id in test_indices(pkg)? {
-        let input = pkg.root.join(format!("tests/{id:03}i.txt"));
-        let mut cmd = Command::new(&bin);
-        if let Some(subtask) = subtasks.get(&id) {
-            cmd.arg("--group").arg(subtask.to_string());
+    let tests = test_indices(pkg)?;
+    let cache = VerdictCache::new(opts.cache)?;
+    let validator_key = measure::validator_key(pkg)?;
+    let mut missing = Vec::new();
+    for (i, &id) in tests.iter().enumerate() {
+        let hash = fs::read(pkg.root.join(format!("tests/{id:03}i.txt")))?;
+        let key = measure::validator_test_key(
+            &validator_key,
+            &measure::sha256_hex(&hash),
+            subtasks.get(&id).copied(),
+        );
+        if cache.get(&key).is_some() {
+            continue;
         }
-        cmd.stdin(fs::File::open(&input)?);
-        if quiet {
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        }
-        let status = cmd
-            .status()
-            .with_context(|| format!("run validator on {id:03}"))?;
-        if !status.success() {
-            bail!("validator rejected test {id:03}");
-        }
+        missing.push(i);
+    }
+    let results = parallel_map(&missing, opts.jobs, |i| {
+        let id = tests[i];
+        run_validator(pkg, &bin, id, subtasks.get(&id).copied(), quiet)
+    })?;
+    for (i, ()) in results {
+        let id = tests[i];
+        let hash = fs::read(pkg.root.join(format!("tests/{id:03}i.txt")))?;
+        let key = measure::validator_test_key(
+            &validator_key,
+            &measure::sha256_hex(&hash),
+            subtasks.get(&id).copied(),
+        );
+        cache.put(&key, 100);
     }
     Ok(())
 }
 
-pub fn run_solutions(pkg: &Package, only: Option<&str>) -> Result<Vec<SolutionRun>> {
+fn run_validator(
+    pkg: &Package,
+    bin: &Path,
+    id: u32,
+    group: Option<u32>,
+    quiet: bool,
+) -> Result<()> {
+    let input = pkg.root.join(format!("tests/{id:03}i.txt"));
+    let mut cmd = Command::new(bin);
+    if let Some(group) = group {
+        cmd.arg("--group").arg(group.to_string());
+    }
+    cmd.stdin(fs::File::open(&input)?);
+    if quiet {
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    }
+    let status = cmd
+        .status()
+        .with_context(|| format!("run validator on {id:03}"))?;
+    if !status.success() {
+        bail!("validator rejected test {id:03}");
+    }
+    Ok(())
+}
+
+pub fn run_solutions(pkg: &Package, opts: &RunOptions) -> Result<Vec<SolutionRun>> {
     if pkg.meta.solutions.is_empty() {
         return Ok(Vec::new());
     }
     if pkg.meta.testing.kind != "interactor" {
         run::ensure_time()?;
     }
+    let selected = selected_solutions(pkg, opts)?;
     let limits = solution_limits(pkg);
     let tests = test_indices(pkg)?;
     let total = score::task_total_pkg(pkg)?;
     let work = TempDir::new()?;
-    let judge = build_judge(pkg, &work)?;
+    let cache = VerdictCache::new(opts.exec.cache)?;
+    let test_hashes = measure::test_hashes(pkg, &tests)?;
+    let judge_key = measure::judge_key(pkg)?;
+    let attached = attached_sources(pkg)?;
+    let mut judge: Option<Judge> = None;
     let mut out = Vec::new();
-    for sol in &pkg.meta.solutions {
-        if only.is_some_and(|name| name != sol.fname) {
-            continue;
-        }
+    for sol in selected {
         let src = pkg.root.join("solutions").join(&sol.fname);
-        let bin = compile_cpp(
-            &src,
-            &work.path().join(&sol.fname),
-            &attached_sources(pkg)?,
-            false,
-        )?;
-        let verdicts = run_on_tests(pkg, &bin, &judge, &tests, limits)?;
+        let solution_key = measure::solution_key(&src)?;
+        let keys: Vec<_> = tests
+            .iter()
+            .map(|id| measure::test_key(&solution_key, &judge_key, *id, &test_hashes[id]))
+            .collect();
+        let (mut verdicts, missing) = read_verdicts(&cache, &keys);
+        if !missing.is_empty() {
+            let bin = compile_cpp(&src, &work.path().join(&sol.fname), &attached, false)?;
+            if judge.is_none() {
+                judge = Some(build_judge(pkg, &work)?);
+            }
+            let results = parallel_map(&missing, opts.exec.jobs, |i| {
+                run_one(pkg, &bin, judge.as_ref().unwrap(), tests[i], limits)
+            })?;
+            for (i, percent) in results {
+                verdicts[i] = Some(percent);
+                cache.put(&keys[i], percent);
+            }
+        }
+        let cached = (keys.len() - missing.len()) as u32;
+        let ran = missing.len() as u32;
+        let verdicts = verdicts
+            .into_iter()
+            .map(|percent| TestVerdict {
+                percent: percent.unwrap_or(0),
+            })
+            .collect::<Vec<_>>();
         let score = score::total_score_pkg(pkg, &verdicts)?;
         out.push(SolutionRun {
             fname: sol.fname.clone(),
             score,
             total,
             expected: sol.score,
+            cached,
+            ran,
         });
     }
-    if let Some(name) = only {
-        if out.is_empty() {
+    Ok(out)
+}
+
+fn read_verdicts(cache: &VerdictCache, keys: &[String]) -> (Vec<Option<u8>>, Vec<usize>) {
+    let mut verdicts = vec![None; keys.len()];
+    let mut missing = Vec::new();
+    for (i, key) in keys.iter().enumerate() {
+        match cache.get(key) {
+            Some(percent) => verdicts[i] = Some(percent),
+            None => missing.push(i),
+        }
+    }
+    (verdicts, missing)
+}
+
+fn selected_solutions<'a>(
+    pkg: &'a Package,
+    opts: &RunOptions,
+) -> Result<Vec<&'a crate::meta::Solution>> {
+    if let Some(model) = opts.model {
+        if !pkg.meta.solutions.iter().any(|s| s.fname == model) {
+            bail!("model solution not found: {model}");
+        }
+    }
+    let mut list: Vec<_> = pkg
+        .meta
+        .solutions
+        .iter()
+        .filter(|s| opts.solution.is_none_or(|name| name == s.fname))
+        .collect();
+    if let Some(model) = opts.model {
+        list.sort_by_key(|s| s.fname != model);
+    }
+    if let Some(name) = opts.solution {
+        if list.is_empty() {
             bail!("solution not found: {name}");
         }
     }
-    Ok(out)
+    Ok(list)
 }
 
 pub fn generate_answers(
@@ -281,54 +388,71 @@ fn solution_limits(pkg: &Package) -> Limits {
     }
 }
 
-fn run_on_tests(
-    pkg: &Package,
-    solution: &Path,
-    judge: &Judge,
-    tests: &[u32],
-    limits: Limits,
-) -> Result<Vec<TestVerdict>> {
-    let work = TempDir::new()?;
-    let mut out = Vec::new();
-    for &id in tests {
-        let input = pkg.root.join(format!("tests/{id:03}i.txt"));
-        let answer = pkg.root.join(format!("tests/{id:03}o.txt"));
-        let percent = match judge.kind.as_str() {
-            "simple" => {
-                if run_simple(solution, &input, &answer, limits)? {
-                    100
-                } else {
-                    0
-                }
-            }
-            "checker" => {
-                let outp = work.path().join(format!("{id:03}.out"));
-                if run_checker(
-                    judge.checker.as_ref().unwrap(),
-                    &input,
-                    &answer,
-                    solution,
-                    &outp,
-                    limits,
-                )? {
-                    100
-                } else {
-                    0
-                }
-            }
-            "interactor" => run_interactor(
-                judge.interactor.as_ref().unwrap(),
+fn run_one(pkg: &Package, solution: &Path, judge: &Judge, id: u32, limits: Limits) -> Result<u8> {
+    let input = pkg.root.join(format!("tests/{id:03}i.txt"));
+    let answer = pkg.root.join(format!("tests/{id:03}o.txt"));
+    let percent = match judge.kind.as_str() {
+        "simple" => u8::from(run_simple(solution, &input, &answer, limits)?) * 100,
+        "checker" => {
+            let work = TempDir::new()?;
+            let outp = work.path().join(format!("{id:03}.out"));
+            u8::from(run_checker(
+                judge.checker.as_ref().unwrap(),
                 &input,
                 &answer,
                 solution,
+                &outp,
                 limits,
-                pkg.meta.testing.mem_mib,
-            )
-            .with_context(|| format!("solution {} test {id:03}", solution.display()))?,
-            other => bail!("unknown testing {other}"),
-        };
-        out.push(TestVerdict { percent });
+            )?) * 100
+        }
+        "interactor" => run_interactor(
+            judge.interactor.as_ref().unwrap(),
+            &input,
+            &answer,
+            solution,
+            limits,
+            pkg.meta.testing.mem_mib,
+        )
+        .with_context(|| format!("solution {} test {id:03}", solution.display()))?,
+        other => bail!("unknown testing {other}"),
+    };
+    Ok(percent)
+}
+
+fn parallel_map<T, F>(indices: &[usize], jobs: usize, f: F) -> Result<Vec<(usize, T)>>
+where
+    T: Send,
+    F: Fn(usize) -> Result<T> + Sync,
+{
+    if indices.is_empty() {
+        return Ok(Vec::new());
     }
+    let next = AtomicUsize::new(0);
+    let results = Mutex::new(Vec::with_capacity(indices.len()));
+    let error = Mutex::new(None);
+    let workers = jobs.max(1).min(indices.len());
+    thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let pos = next.fetch_add(1, Ordering::Relaxed);
+                if pos >= indices.len() {
+                    break;
+                }
+                match f(indices[pos]) {
+                    Ok(value) => results.lock().unwrap().push((indices[pos], value)),
+                    Err(err) => {
+                        *error.lock().unwrap() = Some(err);
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    if let Some(err) = error.into_inner().unwrap() {
+        return Err(err);
+    }
+    let mut out = results.into_inner().unwrap();
+    out.sort_by_key(|(i, _)| *i);
     Ok(out)
 }
 
